@@ -8,12 +8,16 @@ from datetime import timedelta
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Q, Sum
-from django.http import HttpResponse, JsonResponse
+from django.db.models.functions import Coalesce
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.utils.html import format_html
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
@@ -27,19 +31,42 @@ from tasks.models import (
     Task,
     TelegramLink,
 )
+from tasks.services import ai_coaching
 from tasks.services.ai_checkpoints import suggest_checkpoints
-from tasks.services.ai_coaching import generate_coaching_message
+from tasks.services.ai_coaching import generate_coaching_message, get_user_coaching_tone
 from tasks.services.checkpoint_gen import generate_checkpoints_for_task
 from tasks.services.digest import build_daily_digest
-from tasks.services.notifier import evaluate_due_reminders, sync_reminders_for_task
+from tasks.services.notifier import (
+    complete_reminder_action,
+    evaluate_due_reminders,
+    snooze_reminder_action,
+    sync_reminders_for_task,
+)
 from tasks.services.telegram_bot import handle_telegram_update, send_telegram_alert
 
 VALID_SNOOZE_MINUTES = {15, 60, 180}
 VALID_PHASES = {choice[0] for choice in Checkpoint.PHASE_CHOICES}
+VALID_TASK_STATUSES = {choice[0] for choice in Task.STATUS_CHOICES}
+VALID_TASK_CATEGORIES = {choice[0] for choice in Task.CATEGORY_CHOICES}
+VALID_FOCUS_MODES = {choice[0] for choice in FocusSession.MODE_CHOICES}
+MAX_SNOOZE_COUNT = 3
+MAX_POLL_LIVE_AI_CALLS = 2
+MAX_AI_SELECTED_CHECKPOINTS = 15
+MAX_EXTRA_CONTEXT_LENGTH = 500
 
 
 def _is_htmx(request) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
+
+
+def _parse_positive_int(value) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _parse_json_or_post(request) -> dict:
@@ -53,14 +80,46 @@ def _parse_json_or_post(request) -> dict:
     return request.POST.dict()
 
 
+def _active_reminders_for_task(task: Task):
+    """Returns up to 10 active/pending reminders for a task for detail & OOB updates."""
+    return task.reminders.select_related("checkpoint").exclude(
+        status__in=["DONE", "DISMISSED"]
+    )[:10]
+
+
 def _today_focus_minutes(user) -> int:
-    today = timezone.localdate()
+    local_now = timezone.localtime(timezone.now())
+    day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
     agg = FocusSession.objects.filter(
         user=user,
         status="COMPLETED",
-        started_at__date=today,
+        started_at__gte=day_start,
+        started_at__lt=day_end,
     ).aggregate(total=Sum("actual_minutes"))
     return int(agg["total"] or 0)
+
+
+def _fallback_poll_message(reminder: Reminder, *, user_tone: str, now) -> str:
+    """Builds a deterministic offline coaching message when per-poll live AI cap is reached."""
+    has_checkpoint = bool(reminder.checkpoint_id and reminder.checkpoint)
+    target_deadline = (
+        reminder.checkpoint.target_deadline if has_checkpoint else reminder.task.deadline
+    )
+    checkpoint_title = reminder.checkpoint.title if has_checkpoint else "Target utama"
+    hours_left = (target_deadline - now).total_seconds() / 3600.0
+    formatter = getattr(ai_coaching, "_format_fallback_message", None)
+    if callable(formatter):
+        return formatter(
+            tone=user_tone,
+            escalation_level=min(3, max(1, int(reminder.escalation_level or 1))),
+            snooze_count=int(reminder.snooze_count or 0),
+            hours_left=hours_left,
+            checkpoint_title=checkpoint_title,
+            task_title=reminder.task.title,
+        )
+    hours_str = str(max(0, int(round(hours_left))))
+    return f"[{reminder.task.title}] {checkpoint_title} — sisa {hours_str} jam."
 
 
 # =============================================================================
@@ -69,6 +128,7 @@ def _today_focus_minutes(user) -> int:
 
 
 @login_required
+@require_GET
 def task_list(request):
     """Filterable task workspace scoped strictly to the logged-in user."""
     qs = (
@@ -77,17 +137,17 @@ def task_list(request):
         .prefetch_related("checkpoints")
     )
 
-    course_id = request.GET.get("course", "").strip()
+    course_id = _parse_positive_int(request.GET.get("course"))
     status_filter = request.GET.get("status", "").strip()
     category_filter = request.GET.get("category", "").strip()
 
-    if course_id.isdigit():
-        qs = qs.filter(course_id=int(course_id))
-    if status_filter:
+    if course_id is not None:
+        qs = qs.filter(course_id=course_id)
+    if status_filter in VALID_TASK_STATUSES:
         qs = qs.filter(status=status_filter)
     else:
         qs = qs.exclude(status="ARCHIVED")
-    if category_filter:
+    if category_filter in VALID_TASK_CATEGORIES:
         qs = qs.filter(category=category_filter)
 
     courses = Course.objects.filter(user=request.user)
@@ -109,12 +169,20 @@ def task_create(request):
     if request.method == "POST":
         form = TaskForm(request.POST, user=request.user)
         if form.is_valid():
-            task = form.save(commit=False)
-            task.user = request.user
-            task.save()
-            if form.cleaned_data.get("auto_generate_checkpoints", True):
-                generate_checkpoints_for_task(task)
-            sync_reminders_for_task(task)
+            with transaction.atomic():
+                task = form.save(commit=False)
+                task.user = request.user
+                if task.status == "DONE" and task.completed_at is None:
+                    task.completed_at = timezone.now()
+                elif task.status != "DONE":
+                    task.completed_at = None
+                task.save()
+                if (
+                    form.cleaned_data.get("auto_generate_checkpoints", True)
+                    and task.status not in ("DONE", "ARCHIVED")
+                ):
+                    generate_checkpoints_for_task(task)
+                sync_reminders_for_task(task)
             messages.success(request, f"Task '{task.title}' created.")
             return redirect("tasks:task_detail", pk=task.pk)
     else:
@@ -128,6 +196,7 @@ def task_create(request):
 
 
 @login_required
+@require_GET
 def task_detail(request, pk: int):
     """Task detail workspace with HTMX checkpoints, focus logs, and upcoming reminders (F3.1 & F6.2)."""
     task = get_object_or_404(
@@ -137,9 +206,7 @@ def task_detail(request, pk: int):
     )
     checkpoints = task.checkpoints.all()
     focus_sessions = task.focus_sessions.select_related("checkpoint")[:10]
-    reminders = task.reminders.select_related("checkpoint").exclude(
-        status__in=["DONE", "DISMISSED"]
-    )[:10]
+    reminders = _active_reminders_for_task(task)
 
     return render(
         request,
@@ -147,7 +214,6 @@ def task_detail(request, pk: int):
         {
             "task": task,
             "checkpoints": checkpoints,
-            "checkpoint_form": CheckpointForm(),
             "focus_sessions": focus_sessions,
             "total_focus_minutes": task.total_focus_minutes(),
             "reminders": reminders,
@@ -158,17 +224,30 @@ def task_detail(request, pk: int):
 @login_required
 def task_update(request, pk: int):
     """Edits an existing task owned by the current user and resyncs reminders."""
-    task = get_object_or_404(Task, pk=pk, user=request.user)
+    task = get_object_or_404(
+        Task.objects.select_related("component"),
+        pk=pk,
+        user=request.user,
+    )
     if request.method == "POST":
+        if task.component_id:
+            submitted_course_id = _parse_positive_int(request.POST.get("course"))
+            if submitted_course_id != task.component.course_id:
+                task.component = None
         form = TaskForm(request.POST, instance=task, user=request.user)
         if form.is_valid():
-            task = form.save(commit=False)
-            if task.status == "DONE" and task.completed_at is None:
-                task.completed_at = timezone.now()
-            elif task.status != "DONE":
-                task.completed_at = None
-            task.save()
-            sync_reminders_for_task(task)
+            with transaction.atomic():
+                task = form.save(commit=False)
+                if task.component_id and (
+                    not task.course_id or task.component.course_id != task.course_id
+                ):
+                    task.component = None
+                if task.status == "DONE" and task.completed_at is None:
+                    task.completed_at = timezone.now()
+                elif task.status != "DONE":
+                    task.completed_at = None
+                task.save()
+                sync_reminders_for_task(task)
             messages.success(request, f"Task '{task.title}' updated.")
             return redirect("tasks:task_detail", pk=task.pk)
     else:
@@ -197,29 +276,46 @@ def task_delete(request, pk: int):
 def task_archive(request, pk: int):
     """Toggles ARCHIVED status on a task and updates pending reminders."""
     task = get_object_or_404(Task, pk=pk, user=request.user)
-    if task.status == "ARCHIVED":
-        task.status = "TODO"
-        messages.info(request, f"Task '{task.title}' restored from archive.")
-    else:
-        task.status = "ARCHIVED"
-        messages.info(request, f"Task '{task.title}' archived.")
-    task.save(update_fields=["status", "updated_at"])
-    sync_reminders_for_task(task)
+    with transaction.atomic():
+        if task.status == "ARCHIVED":
+            task.status = "TODO"
+            task.save(update_fields=["status", "updated_at"])
+            if task.checkpoints.exists():
+                task.sync_status_from_checkpoints()
+            else:
+                task.completed_at = None
+                task.save(update_fields=["completed_at", "updated_at"])
+            info_msg = f"Task '{task.title}' restored from archive."
+        else:
+            task.status = "ARCHIVED"
+            task.save(update_fields=["status", "updated_at"])
+            info_msg = f"Task '{task.title}' archived."
+        sync_reminders_for_task(task)
+    messages.info(request, info_msg)
     return redirect("tasks:task_detail", pk=task.pk)
 
 
 @login_required
+@require_GET
 def task_history(request):
     """Paginated completed tasks history comparing estimated vs actual minutes (F6.2)."""
     qs = (
         Task.objects.filter(user=request.user, status="DONE")
         .select_related("course")
-        .prefetch_related("focus_sessions")
+        .annotate(
+            logged_focus_minutes=Coalesce(
+                Sum(
+                    "focus_sessions__actual_minutes",
+                    filter=Q(focus_sessions__status="COMPLETED"),
+                ),
+                0,
+            )
+        )
         .order_by("-completed_at", "-updated_at")
     )
-    course_id = request.GET.get("course", "").strip()
-    if course_id.isdigit():
-        qs = qs.filter(course_id=int(course_id))
+    course_id = _parse_positive_int(request.GET.get("course"))
+    if course_id is not None:
+        qs = qs.filter(course_id=course_id)
 
     paginator = Paginator(qs, 15)
     page_obj = paginator.get_page(request.GET.get("page"))
@@ -236,30 +332,62 @@ def task_history(request):
 # =============================================================================
 
 
+def _checkpoint_form_error_response(request, task: Task, error_msg: str):
+    """Returns inline HTMX error targeting #checkpoint-form-error or flashes message on non-HTMX."""
+    if _is_htmx(request):
+        resp = HttpResponse(
+            format_html('<p class="text-xs text-red-600 font-medium">{}</p>', error_msg),
+            status=400,
+        )
+        resp["HX-Retarget"] = "#checkpoint-form-error"
+        resp["HX-Reswap"] = "innerHTML"
+        return resp
+    messages.error(request, error_msg)
+    return redirect("tasks:task_detail", pk=task.pk)
+
+
 @login_required
 @require_POST
 def add_checkpoint(request, task_pk: int):
     """Adds a checkpoint inline via HTMX (or normal POST) and updates progress & reminders."""
     task = get_object_or_404(Task, pk=task_pk, user=request.user)
     title = request.POST.get("title", "").strip()
+    if not title:
+        return _checkpoint_form_error_response(request, task, "Judul checkpoint wajib diisi.")
+
     phase = request.POST.get("phase", "CUSTOM").strip().upper()
     if phase not in VALID_PHASES:
         phase = "CUSTOM"
 
     raw_deadline = request.POST.get("target_deadline", "").strip()
-    target_dt = parse_datetime(raw_deadline) if raw_deadline else None
-    if target_dt is not None and timezone.is_naive(target_dt):
-        target_dt = timezone.make_aware(target_dt)
-    if target_dt is None:
-        target_dt = max(timezone.now(), task.deadline - timedelta(hours=1))
+    if raw_deadline:
+        target_dt = parse_datetime(raw_deadline)
+        if target_dt is None:
+            return _checkpoint_form_error_response(
+                request,
+                task,
+                "Format target deadline checkpoint tidak valid.",
+            )
+        if timezone.is_naive(target_dt):
+            target_dt = timezone.make_aware(target_dt)
+        if target_dt > task.deadline:
+            return _checkpoint_form_error_response(
+                request,
+                task,
+                "Target deadline checkpoint tidak boleh melewati deadline tugas.",
+            )
+    else:
+        target_dt = min(task.deadline, max(timezone.now(), task.deadline - timedelta(hours=1)))
 
     try:
-        est_minutes = max(5, min(600, int(request.POST.get("estimated_minutes") or 30)))
-    except ValueError:
+        est_minutes = max(1, min(600, int(request.POST.get("estimated_minutes") or 30)))
+    except (TypeError, ValueError):
         est_minutes = 30
 
-    if title:
-        next_order = (task.checkpoints.order_by("-order").values_list("order", flat=True).first() or 0) + 1
+    with transaction.atomic():
+        next_order = (
+            task.checkpoints.order_by("-order").values_list("order", flat=True).first() or 0
+        ) + 1
         Checkpoint.objects.create(
             task=task,
             title=title[:200],
@@ -272,13 +400,49 @@ def add_checkpoint(request, task_pk: int):
         sync_reminders_for_task(task)
 
     if _is_htmx(request):
-        return render(
-            request,
+        html = render_to_string(
             "tasks/partials/checkpoint_list.html",
             {
                 "task": task,
                 "checkpoints": task.checkpoints.all(),
                 "include_oob_progress": True,
+                "include_oob_reminders": True,
+                "reminders": _active_reminders_for_task(task),
+            },
+            request=request,
+        )
+        clear_error_oob = '<div id="checkpoint-form-error" hx-swap-oob="innerHTML"></div>'
+        return HttpResponse(html + clear_error_oob)
+    return redirect("tasks:task_detail", pk=task.pk)
+
+
+@login_required
+@require_POST
+def toggle_checkpoint(request, pk: int):
+    """Toggles checkpoint completion via HTMX, recalculates parent status, and returns OOB progress & reminders."""
+    checkpoint = get_object_or_404(
+        Checkpoint.objects.select_related("task"),
+        pk=pk,
+        task__user=request.user,
+    )
+    task = checkpoint.task
+    with transaction.atomic():
+        checkpoint.is_done = not checkpoint.is_done
+        checkpoint.completed_at = timezone.now() if checkpoint.is_done else None
+        checkpoint.save(update_fields=["is_done", "completed_at"])
+        task.sync_status_from_checkpoints()
+        sync_reminders_for_task(task)
+
+    if _is_htmx(request):
+        return render(
+            request,
+            "tasks/partials/checkpoint_row.html",
+            {
+                "cp": checkpoint,
+                "task": task,
+                "include_oob_progress": True,
+                "include_oob_reminders": True,
+                "reminders": _active_reminders_for_task(task),
             },
         )
     return redirect("tasks:task_detail", pk=task.pk)
@@ -286,51 +450,52 @@ def add_checkpoint(request, task_pk: int):
 
 @login_required
 @require_POST
-def toggle_checkpoint(request, pk: int):
-    """Toggles checkpoint completion via HTMX, recalculates parent status, and returns OOB progress bar."""
-    checkpoint = get_object_or_404(
-        Checkpoint.objects.select_related("task"),
-        pk=pk,
-        task__user=request.user,
-    )
-    checkpoint.is_done = not checkpoint.is_done
-    checkpoint.completed_at = timezone.now() if checkpoint.is_done else None
-    checkpoint.save(update_fields=["is_done", "completed_at"])
-
-    task = checkpoint.task
-    task.sync_status_from_checkpoints()
-    sync_reminders_for_task(task)
-
-    if _is_htmx(request):
-        return render(
-            request,
-            "tasks/partials/checkpoint_row.html",
-            {"cp": checkpoint, "include_oob_progress": True},
-        )
-    return redirect("tasks:task_detail", pk=task.pk)
-
-
-@login_required
-@require_POST
 def edit_checkpoint(request, pk: int):
-    """Edits checkpoint title, phase, or target_deadline."""
+    """Edits checkpoint title, phase, target_deadline, or estimated_minutes."""
     checkpoint = get_object_or_404(
         Checkpoint.objects.select_related("task"),
         pk=pk,
         task__user=request.user,
     )
-    form = CheckpointForm(request.POST, instance=checkpoint)
+    task = checkpoint.task
+    form = CheckpointForm(request.POST, instance=checkpoint, task=task)
     if form.is_valid():
-        checkpoint = form.save()
-        sync_reminders_for_task(checkpoint.task)
+        with transaction.atomic():
+            checkpoint = form.save()
+            sync_reminders_for_task(task)
+        if _is_htmx(request):
+            return render(
+                request,
+                "tasks/partials/checkpoint_row.html",
+                {
+                    "cp": checkpoint,
+                    "task": task,
+                    "include_oob_progress": True,
+                    "include_oob_reminders": True,
+                    "reminders": _active_reminders_for_task(task),
+                },
+            )
+        return redirect("tasks:task_detail", pk=task.pk)
 
+    error_msg = next(
+        (msg for err_list in form.errors.values() for msg in err_list),
+        "Data checkpoint tidak valid.",
+    )
     if _is_htmx(request):
+        checkpoint.refresh_from_db()
         return render(
             request,
             "tasks/partials/checkpoint_row.html",
-            {"cp": checkpoint, "include_oob_progress": True},
+            {
+                "cp": checkpoint,
+                "task": task,
+                "include_oob_progress": False,
+                "edit_error": error_msg,
+            },
+            status=400,
         )
-    return redirect("tasks:task_detail", pk=checkpoint.task_id)
+    messages.error(request, error_msg)
+    return redirect("tasks:task_detail", pk=task.pk)
 
 
 @login_required
@@ -343,16 +508,40 @@ def delete_checkpoint(request, pk: int):
         task__user=request.user,
     )
     task = checkpoint.task
-    checkpoint.delete()
-    task.sync_status_from_checkpoints()
-    sync_reminders_for_task(task)
+    with transaction.atomic():
+        checkpoint.delete()
+        task.sync_status_from_checkpoints()
+        sync_reminders_for_task(task)
 
     if _is_htmx(request):
-        return render(
-            request,
+        reminders = _active_reminders_for_task(task)
+        if not task.checkpoints.exists():
+            resp = render(
+                request,
+                "tasks/partials/checkpoint_list.html",
+                {
+                    "task": task,
+                    "checkpoints": [],
+                    "include_oob_progress": True,
+                    "include_oob_reminders": True,
+                    "reminders": reminders,
+                },
+            )
+            resp["HX-Retarget"] = "#checkpoint-list"
+            resp["HX-Reswap"] = "outerHTML"
+            return resp
+
+        progress_html = render_to_string(
             "tasks/partials/progress_bar.html",
             {"task": task, "oob": True},
+            request=request,
         )
+        reminders_html = render_to_string(
+            "tasks/partials/upcoming_reminders.html",
+            {"task": task, "reminders": reminders, "oob": True},
+            request=request,
+        )
+        return HttpResponse(progress_html + reminders_html)
     return redirect("tasks:task_detail", pk=task.pk)
 
 
@@ -361,9 +550,10 @@ def delete_checkpoint(request, pk: int):
 def regenerate_checkpoints(request, pk: int):
     """Auto-generates checkpoints (preserving completed ones) and returns refreshed checklist partial (F3.2)."""
     task = get_object_or_404(Task, pk=pk, user=request.user)
-    generate_checkpoints_for_task(task, overwrite=True)
-    task.sync_status_from_checkpoints()
-    sync_reminders_for_task(task)
+    with transaction.atomic():
+        generate_checkpoints_for_task(task, overwrite=True)
+        task.sync_status_from_checkpoints()
+        sync_reminders_for_task(task)
 
     if _is_htmx(request):
         return render(
@@ -373,6 +563,8 @@ def regenerate_checkpoints(request, pk: int):
                 "task": task,
                 "checkpoints": task.checkpoints.all(),
                 "include_oob_progress": True,
+                "include_oob_reminders": True,
+                "reminders": _active_reminders_for_task(task),
             },
         )
     return redirect("tasks:task_detail", pk=task.pk)
@@ -383,7 +575,7 @@ def regenerate_checkpoints(request, pk: int):
 def preview_ai_checkpoints(request, pk: int):
     """Returns editable AI/fallback sub-task suggestions partial (F3.4)."""
     task = get_object_or_404(Task, pk=pk, user=request.user)
-    extra_context = request.POST.get("extra_context", "").strip()
+    extra_context = request.POST.get("extra_context", "").strip()[:MAX_EXTRA_CONTEXT_LENGTH]
     suggestions, source = suggest_checkpoints(task, extra_context=extra_context)
     return render(
         request,
@@ -397,7 +589,7 @@ def preview_ai_checkpoints(request, pk: int):
 def apply_ai_checkpoints(request, pk: int):
     """Saves selected AI/fallback suggested sub-tasks evenly spaced before task.deadline (F3.4)."""
     task = get_object_or_404(Task, pk=pk, user=request.user)
-    selected_indices = request.POST.getlist("selected")
+    selected_indices = request.POST.getlist("selected")[:MAX_AI_SELECTED_CHECKPOINTS]
     source = request.POST.get("source", "fallback").strip().lower()
     is_ai = source == "ai"
 
@@ -410,41 +602,50 @@ def apply_ai_checkpoints(request, pk: int):
         if phase not in VALID_PHASES:
             phase = "CUSTOM"
         try:
-            est = max(5, min(600, int(request.POST.get(f"estimated_minutes_{raw_idx}") or 30)))
-        except ValueError:
+            est = max(1, min(600, int(request.POST.get(f"estimated_minutes_{raw_idx}") or 30)))
+        except (TypeError, ValueError):
             est = 30
         parsed_rows.append((title[:200], phase, est))
 
     if parsed_rows:
-        now = timezone.now()
-        cap_end = task.deadline - timedelta(minutes=15)
-        if cap_end <= now:
-            base_start = task.deadline - timedelta(hours=2)
-            total_span = timedelta(minutes=105)
-        else:
-            base_start = now
-            total_span = cap_end - now
-
-        max_order = task.checkpoints.order_by("-order").values_list("order", flat=True).first() or 0
-        count = len(parsed_rows)
-        new_objs = []
-        for idx, (title, phase, est) in enumerate(parsed_rows, start=1):
-            fraction = idx / count
-            target_dt = min(base_start + total_span * fraction, task.deadline - timedelta(minutes=1))
-            new_objs.append(
-                Checkpoint(
-                    task=task,
-                    title=title,
-                    phase=phase,
-                    target_deadline=target_dt,
-                    estimated_minutes=est,
-                    order=max_order + idx,
-                    is_ai_generated=is_ai,
-                )
+        with transaction.atomic():
+            now = timezone.now()
+            remaining = task.deadline - now
+            max_order = (
+                task.checkpoints.order_by("-order").values_list("order", flat=True).first() or 0
             )
-        Checkpoint.objects.bulk_create(new_objs)
-        task.sync_status_from_checkpoints()
-        sync_reminders_for_task(task)
+            count = len(parsed_rows)
+            new_objs = []
+            for idx, (title, phase, est) in enumerate(parsed_rows, start=1):
+                if remaining > timedelta(minutes=15):
+                    cap_end = task.deadline - timedelta(minutes=15)
+                    target_dt = min(
+                        now + (cap_end - now) * (idx / count),
+                        task.deadline - timedelta(minutes=1),
+                    )
+                elif remaining > timedelta(0):
+                    target_dt = now + remaining * (idx / (count + 1))
+                else:
+                    base_start = task.deadline - timedelta(hours=2)
+                    total_span = timedelta(minutes=105)
+                    target_dt = min(
+                        base_start + total_span * (idx / count),
+                        task.deadline - timedelta(minutes=1),
+                    )
+                new_objs.append(
+                    Checkpoint(
+                        task=task,
+                        title=title,
+                        phase=phase,
+                        target_deadline=target_dt,
+                        estimated_minutes=est,
+                        order=max_order + idx,
+                        is_ai_generated=is_ai,
+                    )
+                )
+            Checkpoint.objects.bulk_create(new_objs)
+            task.sync_status_from_checkpoints()
+            sync_reminders_for_task(task)
 
     if _is_htmx(request):
         return render(
@@ -454,6 +655,8 @@ def apply_ai_checkpoints(request, pk: int):
                 "task": task,
                 "checkpoints": task.checkpoints.all(),
                 "include_oob_progress": True,
+                "include_oob_reminders": True,
+                "reminders": _active_reminders_for_task(task),
             },
         )
     return redirect("tasks:task_detail", pk=task.pk)
@@ -465,9 +668,10 @@ def apply_ai_checkpoints(request, pk: int):
 
 
 @login_required
+@require_GET
 def focus_mode_view(request, pk: int):
     """Renders distraction-free Pomodoro Focus Mode for a task (F3.3)."""
-    task = get_object_or_404(Task, pk=pk, user=request.user)
+    task = get_object_or_404(Task.objects.select_related("course"), pk=pk, user=request.user)
     active_checkpoints = task.checkpoints.filter(is_done=False)
     return render(
         request,
@@ -485,23 +689,31 @@ def focus_mode_view(request, pk: int):
 def start_focus_session(request):
     """Starts a RUNNING FocusSession and returns JSON session metadata (F3.3)."""
     data = _parse_json_or_post(request)
-    task_id = data.get("task_id")
+    task_id = _parse_positive_int(data.get("task_id"))
+    if task_id is None:
+        return JsonResponse({"ok": False, "error": "Invalid or missing task_id."}, status=400)
     task = get_object_or_404(Task, pk=task_id, user=request.user)
 
     checkpoint = None
-    checkpoint_id = data.get("checkpoint_id")
-    if checkpoint_id:
-        checkpoint = get_object_or_404(Checkpoint, pk=checkpoint_id, task=task)
+    raw_cp_id = data.get("checkpoint_id")
+    if raw_cp_id not in (None, ""):
+        cp_id = _parse_positive_int(raw_cp_id)
+        if cp_id is None:
+            return JsonResponse({"ok": False, "error": "Invalid checkpoint_id."}, status=400)
+        checkpoint = get_object_or_404(Checkpoint, pk=cp_id, task=task)
 
     mode = str(data.get("mode", "POMODORO_25_5")).upper()
-    valid_modes = {choice[0] for choice in FocusSession.MODE_CHOICES}
-    if mode not in valid_modes:
+    if mode not in VALID_FOCUS_MODES:
         mode = "POMODORO_25_5"
 
-    try:
-        planned_minutes = max(1, min(180, int(data.get("planned_minutes") or 25)))
-    except (TypeError, ValueError):
+    raw_planned = data.get("planned_minutes")
+    if raw_planned in (None, "") or isinstance(raw_planned, bool):
         planned_minutes = 25
+    else:
+        try:
+            planned_minutes = max(1, min(180, int(raw_planned)))
+        except (TypeError, ValueError):
+            planned_minutes = 25
 
     session = FocusSession.objects.create(
         user=request.user,
@@ -525,51 +737,69 @@ def start_focus_session(request):
 @require_POST
 def finish_focus_session(request, session_id: int):
     """Completes or abandons a FocusSession, logs actual minutes, and optionally marks checkpoint done."""
-    session = get_object_or_404(
-        FocusSession.objects.select_related("task", "checkpoint"),
-        pk=session_id,
-        user=request.user,
-    )
     data = _parse_json_or_post(request)
     now = timezone.now()
 
     raw_status = str(data.get("status", "COMPLETED")).upper()
     new_status = "ABANDONED" if raw_status == "ABANDONED" else "COMPLETED"
 
-    elapsed_seconds = data.get("elapsed_seconds")
-    if elapsed_seconds is not None:
-        try:
-            sec_val = max(0, int(elapsed_seconds))
-            computed_minutes = max(1, round(sec_val / 60)) if sec_val > 0 or new_status == "COMPLETED" else 0
-            actual_minutes = min(computed_minutes, session.planned_minutes)
-        except (TypeError, ValueError):
-            actual_minutes = max(1, round((now - session.started_at).total_seconds() / 60))
-    else:
-        actual_minutes = max(1, round((now - session.started_at).total_seconds() / 60))
-        actual_minutes = min(actual_minutes, session.planned_minutes)
-
-    session.ended_at = now
-    session.actual_minutes = actual_minutes
-    session.status = new_status
-    session.save(update_fields=["ended_at", "actual_minutes", "status"])
-
-    task = session.task
-    if new_status == "COMPLETED":
-        task.actual_minutes = task.total_focus_minutes()
-        task.save(update_fields=["actual_minutes", "updated_at"])
-
     mark_done_raw = data.get("mark_checkpoint_done", False)
     mark_done = str(mark_done_raw).lower() in ("1", "true", "yes", "on")
-    checkpoint_marked = False
-    if new_status == "COMPLETED" and mark_done and session.checkpoint_id:
-        cp = session.checkpoint
-        if not cp.is_done:
-            cp.is_done = True
-            cp.completed_at = now
-            cp.save(update_fields=["is_done", "completed_at"])
-            task.sync_status_from_checkpoints()
-            sync_reminders_for_task(task)
-            checkpoint_marked = True
+
+    with transaction.atomic():
+        session = get_object_or_404(
+            FocusSession.objects.select_for_update().select_related("task", "checkpoint"),
+            pk=session_id,
+            user=request.user,
+        )
+        if session.status in ("COMPLETED", "ABANDONED"):
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "error": "Focus session is already finished.",
+                    "status": session.status,
+                },
+                status=409,
+            )
+
+        elapsed_seconds = data.get("elapsed_seconds")
+        if elapsed_seconds is not None and not isinstance(elapsed_seconds, bool):
+            try:
+                sec_val = max(0, int(elapsed_seconds))
+                computed_minutes = (
+                    max(1, round(sec_val / 60))
+                    if sec_val > 0 or new_status == "COMPLETED"
+                    else 0
+                )
+            except (TypeError, ValueError):
+                computed_minutes = max(
+                    1, round((now - session.started_at).total_seconds() / 60)
+                )
+        else:
+            computed_minutes = max(1, round((now - session.started_at).total_seconds() / 60))
+        actual_minutes = min(computed_minutes, session.planned_minutes)
+
+        session.ended_at = now
+        session.actual_minutes = actual_minutes
+        session.status = new_status
+        session.save(update_fields=["ended_at", "actual_minutes", "status"])
+
+        task = session.task
+        task_total = task.total_focus_minutes()
+        if new_status == "COMPLETED":
+            task.actual_minutes = task_total
+            task.save(update_fields=["actual_minutes", "updated_at"])
+
+        checkpoint_marked = False
+        if new_status == "COMPLETED" and mark_done and session.checkpoint_id:
+            cp = session.checkpoint
+            if not cp.is_done:
+                cp.is_done = True
+                cp.completed_at = now
+                cp.save(update_fields=["is_done", "completed_at"])
+                task.sync_status_from_checkpoints()
+                sync_reminders_for_task(task)
+                checkpoint_marked = True
 
     return JsonResponse(
         {
@@ -578,7 +808,7 @@ def finish_focus_session(request, session_id: int):
             "actual_minutes": session.actual_minutes,
             "checkpoint_marked": checkpoint_marked,
             "today_focus_minutes": _today_focus_minutes(request.user),
-            "task_total_focus_minutes": task.total_focus_minutes(),
+            "task_total_focus_minutes": task_total,
         }
     )
 
@@ -588,7 +818,22 @@ def finish_focus_session(request, session_id: int):
 # =============================================================================
 
 
+def _reminder_htmx_error_response(pk: int, error_msg: str) -> HttpResponse:
+    """Returns inline HTMX error targeting #reminder-error-<pk> while keeping the card intact."""
+    resp = HttpResponse(
+        format_html(
+            '<div class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 font-semibold">{}</div>',
+            error_msg,
+        ),
+        status=400,
+    )
+    resp["HX-Retarget"] = f"#reminder-error-{pk}"
+    resp["HX-Reswap"] = "innerHTML"
+    return resp
+
+
 @login_required
+@require_GET
 def alert_inbox_view(request):
     """Alert inbox displaying active/due, snoozed, and resolved reminders (F4.2)."""
     now = timezone.now()
@@ -612,6 +857,7 @@ def alert_inbox_view(request):
             "active_reminders": active_reminders,
             "snoozed_reminders": snoozed_reminders,
             "closed_reminders": closed_reminders,
+            "max_snooze_count": MAX_SNOOZE_COUNT,
         },
     )
 
@@ -623,7 +869,7 @@ def poll_due_alerts(request):
     now = timezone.now()
     due_qs = (
         Reminder.objects.filter(user=request.user, channel="WEB")
-        .select_related("task", "checkpoint")
+        .select_related("task", "checkpoint", "user")
         .filter(
             Q(status="PENDING", scheduled_for__lte=now)
             | Q(status="SNOOZED", snoozed_until__lte=now)
@@ -631,16 +877,27 @@ def poll_due_alerts(request):
         .order_by("-escalation_level", "scheduled_for")
     )
 
+    user_tone = get_user_coaching_tone(request.user)
+    live_ai_enabled = bool(os.environ.get("GEMINI_API_KEY", "").strip())
+    live_ai_calls = 0
+
+    finished_ids: list[int] = []
+    to_update_msg: list[Reminder] = []
     alerts_payload = []
+
     for r in due_qs:
         if r.task.status in ("DONE", "ARCHIVED") or (r.checkpoint_id and r.checkpoint.is_done):
-            r.status = "DONE"
-            r.save(update_fields=["status"])
+            finished_ids.append(r.pk)
             continue
         if not r.message:
-            msg, _ = generate_coaching_message(r, now=now)
+            if not live_ai_enabled or live_ai_calls < MAX_POLL_LIVE_AI_CALLS:
+                msg, _ = generate_coaching_message(r, user_tone=user_tone, now=now)
+                if live_ai_enabled:
+                    live_ai_calls += 1
+            else:
+                msg = _fallback_poll_message(r, user_tone=user_tone, now=now)
             r.message = msg
-            r.save(update_fields=["message"])
+            to_update_msg.append(r)
         alerts_payload.append(
             {
                 "id": r.pk,
@@ -657,6 +914,11 @@ def poll_due_alerts(request):
             }
         )
 
+    if finished_ids:
+        Reminder.objects.filter(pk__in=finished_ids).update(status="DONE")
+    if to_update_msg:
+        Reminder.objects.bulk_update(to_update_msg, ["message"])
+
     return JsonResponse({"alerts": alerts_payload})
 
 
@@ -664,15 +926,31 @@ def poll_due_alerts(request):
 @require_POST
 def trigger_process_reminders(request):
     """Manual UI trigger for local development (runs evaluate_due_reminders without OS cron)."""
-    due = evaluate_due_reminders()
-    user_due = [r for r in due if r.user_id == request.user.pk]
+    user_due = evaluate_due_reminders(user=request.user)
+    chat_id = (
+        TelegramLink.objects.filter(
+            user=request.user,
+            is_verified=True,
+            chat_id__isnull=False,
+        )
+        .values_list("chat_id", flat=True)
+        .first()
+    )
     tg_sent = 0
-    for r in user_due:
-        if r.channel != "DIGEST" and r.sent_at is None:
-            if send_telegram_alert(r):
-                r.sent_at = timezone.now()
-                r.save(update_fields=["sent_at"])
+    if chat_id is not None:
+        sent_targets: set[tuple[int, int | None]] = set()
+        sent_ids: list[int] = []
+        sent_at = timezone.now()
+        for r in user_due:
+            target_key = (r.task_id, r.checkpoint_id)
+            if r.channel == "DIGEST" or r.sent_at is not None or target_key in sent_targets:
+                continue
+            if send_telegram_alert(r, chat_id=chat_id):
+                sent_targets.add(target_key)
+                sent_ids.append(r.pk)
                 tg_sent += 1
+        if sent_ids:
+            Reminder.objects.filter(pk__in=sent_ids).update(sent_at=sent_at)
     messages.info(
         request,
         f"Checked due reminders: {len(user_due)} active for you ({tg_sent} sent via Telegram).",
@@ -684,55 +962,55 @@ def trigger_process_reminders(request):
 @require_POST
 def snooze_reminder(request, pk: int):
     """Snoozes a reminder by 15, 60, or 180 minutes with snooze_count >= 3 and deadline anti-procrastination guards."""
-    reminder = get_object_or_404(
-        Reminder.objects.select_related("task", "checkpoint"),
-        pk=pk,
-        user=request.user,
-    )
     data = _parse_json_or_post(request)
-    try:
-        minutes = int(data.get("minutes", 15))
-    except (TypeError, ValueError):
+    raw_minutes = data.get("minutes")
+    if raw_minutes in (None, ""):
         minutes = 15
+    elif isinstance(raw_minutes, bool):
+        minutes = -1
+    else:
+        try:
+            minutes = int(raw_minutes)
+        except (TypeError, ValueError):
+            minutes = -1
 
     if minutes not in VALID_SNOOZE_MINUTES:
-        return JsonResponse({"ok": False, "error": "Invalid snooze duration. Use 15, 60, or 180."}, status=400)
-
-    if reminder.snooze_count >= 3:
-        msg = "Maximum snooze limit (3x) reached! Please start this checkpoint now."
+        err_msg = "Invalid snooze duration. Use 15, 60, or 180."
         if _is_htmx(request):
-            return HttpResponse(
-                f'<div id="reminder-{reminder.pk}" class="rounded-xl border border-red-300 bg-red-50 p-3 text-xs text-red-800 font-semibold">{msg}</div>',
-                status=400,
-            )
-        return JsonResponse({"ok": False, "error": msg}, status=400)
+            return _reminder_htmx_error_response(pk, err_msg)
+        return JsonResponse({"ok": False, "error": err_msg}, status=400)
 
-    now = timezone.now()
-    proposed = now + timedelta(minutes=minutes)
-    if proposed >= reminder.task.deadline:
-        msg = "Cannot snooze past the task deadline."
+    ok, result = snooze_reminder_action(pk, minutes=minutes, user=request.user)
+    if not ok:
+        if result.get("reason") == "not_found":
+            raise Http404("Reminder not found.")
+        err_msg = result.get("error") or "Unable to snooze reminder."
         if _is_htmx(request):
-            return HttpResponse(
-                f'<div id="reminder-{reminder.pk}" class="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 font-semibold">{msg}</div>',
-                status=400,
-            )
-        return JsonResponse({"ok": False, "error": msg}, status=400)
-
-    reminder.status = "SNOOZED"
-    reminder.snoozed_until = proposed
-    reminder.snooze_count += 1
-    if reminder.snooze_count >= 2:
-        reminder.escalation_level = 3
-    reminder.save(update_fields=["status", "snoozed_until", "snooze_count", "escalation_level"])
+            return _reminder_htmx_error_response(pk, err_msg)
+        return JsonResponse({"ok": False, "error": err_msg}, status=400)
 
     if _is_htmx(request):
         return HttpResponse("")
+
+    reminder_obj = result.get("reminder")
+    snoozed_until = result.get("snoozed_until")
+    if snoozed_until is None and reminder_obj is not None:
+        snoozed_until = reminder_obj.snoozed_until
+    if hasattr(snoozed_until, "isoformat"):
+        snoozed_until = snoozed_until.isoformat()
+    status_val = result.get("status") or (
+        reminder_obj.status if reminder_obj is not None else "SNOOZED"
+    )
+    snooze_count = result.get("snooze_count")
+    if snooze_count is None and reminder_obj is not None:
+        snooze_count = reminder_obj.snooze_count
+
     return JsonResponse(
         {
             "ok": True,
-            "status": reminder.status,
-            "snoozed_until": reminder.snoozed_until.isoformat(),
-            "snooze_count": reminder.snooze_count,
+            "status": status_val,
+            "snoozed_until": snoozed_until,
+            "snooze_count": snooze_count,
         }
     )
 
@@ -741,9 +1019,15 @@ def snooze_reminder(request, pk: int):
 @require_POST
 def dismiss_reminder(request, pk: int):
     """Dismisses a reminder owned by the current user."""
-    reminder = get_object_or_404(Reminder, pk=pk, user=request.user)
-    reminder.status = "DISMISSED"
-    reminder.save(update_fields=["status"])
+    with transaction.atomic():
+        reminder = get_object_or_404(
+            Reminder.objects.select_for_update(),
+            pk=pk,
+            user=request.user,
+        )
+        if reminder.status not in ("DONE", "DISMISSED"):
+            reminder.status = "DISMISSED"
+            reminder.save(update_fields=["status"])
     if _is_htmx(request):
         return HttpResponse("")
     return JsonResponse({"ok": True, "status": reminder.status})
@@ -753,29 +1037,22 @@ def dismiss_reminder(request, pk: int):
 @require_POST
 def done_reminder(request, pk: int):
     """Marks both the reminder and its linked checkpoint as DONE."""
-    reminder = get_object_or_404(
-        Reminder.objects.select_related("task", "checkpoint"),
-        pk=pk,
-        user=request.user,
-    )
-    now = timezone.now()
-    reminder.status = "DONE"
-    reminder.save(update_fields=["status"])
-
-    if reminder.checkpoint_id and not reminder.checkpoint.is_done:
-        cp = reminder.checkpoint
-        cp.is_done = True
-        cp.completed_at = now
-        cp.save(update_fields=["is_done", "completed_at"])
-        reminder.task.sync_status_from_checkpoints()
-        sync_reminders_for_task(reminder.task)
+    ok, result = complete_reminder_action(pk, user=request.user)
+    if not ok:
+        if result.get("reason") == "not_found":
+            raise Http404("Reminder not found.")
+        err_msg = result.get("error") or "Unable to complete reminder."
+        if _is_htmx(request):
+            return _reminder_htmx_error_response(pk, err_msg)
+        return JsonResponse({"ok": False, "error": err_msg}, status=400)
 
     if _is_htmx(request):
         return HttpResponse("")
-    return JsonResponse({"ok": True, "status": "DONE"})
+    return JsonResponse({"ok": True, "status": result.get("status", "DONE")})
 
 
 @login_required
+@require_GET
 def daily_digest_view(request):
     """Web preview of today's anti-spam daily briefing and recent digest logs (F4.3)."""
     slot = request.GET.get("slot", "MORNING").upper()
@@ -797,24 +1074,42 @@ def daily_digest_view(request):
 @login_required
 def telegram_connect_view(request):
     """Generates/regenerates one-time Telegram link token and shows connection status (F4.4)."""
-    link, created = TelegramLink.objects.get_or_create(
+    now = timezone.now()
+    link, _ = TelegramLink.objects.get_or_create(
         user=request.user,
-        defaults={"link_token": secrets.token_urlsafe(12)},
+        defaults={
+            "link_token": secrets.token_urlsafe(24),
+            "token_created_at": now,
+        },
     )
     if request.method == "POST":
-        link.link_token = secrets.token_urlsafe(12)
+        link.link_token = secrets.token_urlsafe(24)
+        link.token_created_at = timezone.now()
         link.chat_id = None
         link.is_verified = False
         link.linked_at = None
-        link.save(update_fields=["link_token", "chat_id", "is_verified", "linked_at"])
+        link.save(
+            update_fields=[
+                "link_token",
+                "token_created_at",
+                "chat_id",
+                "is_verified",
+                "linked_at",
+            ]
+        )
         messages.info(request, "Generated a new Telegram link token.")
         return redirect("alerts:telegram_connect")
 
-    bot_username = os.environ.get("TELEGRAM_BOT_USERNAME", "").strip() or "YourATRBot"
+    raw_bot_username = os.environ.get("TELEGRAM_BOT_USERNAME", "").strip().lstrip("@")
+    bot_username = raw_bot_username or "YourATRBot"
     return render(
         request,
         "tasks/alerts/telegram_connect.html",
-        {"link": link, "bot_username": bot_username},
+        {
+            "link": link,
+            "bot_username": bot_username,
+            "bot_username_configured": bool(raw_bot_username),
+        },
     )
 
 
@@ -823,13 +1118,23 @@ def telegram_connect_view(request):
 def telegram_webhook_view(request, secret: str):
     """Production Telegram webhook endpoint protected by TELEGRAM_WEBHOOK_SECRET (F4.4)."""
     expected_secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
-    if not expected_secret or not secrets.compare_digest(secret, expected_secret):
+    if not expected_secret:
+        return JsonResponse({"ok": False, "error": "Forbidden"}, status=403)
+
+    if "X-Telegram-Bot-Api-Secret-Token" in request.headers:
+        header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "").strip()
+        if not secrets.compare_digest(header_secret, expected_secret):
+            return JsonResponse({"ok": False, "error": "Forbidden"}, status=403)
+    elif not secrets.compare_digest(secret, expected_secret):
         return JsonResponse({"ok": False, "error": "Forbidden"}, status=403)
 
     try:
         payload = json.loads(request.body.decode("utf-8") or "{}")
     except (ValueError, UnicodeDecodeError):
         return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    if not isinstance(payload, dict):
+        return JsonResponse({"ok": False, "error": "Invalid JSON payload"}, status=400)
 
     result = handle_telegram_update(payload)
     return JsonResponse(result)
@@ -877,6 +1182,5 @@ def preview_coaching_tone(request):
             "tone": tone,
             "source": source,
             "message": message_text,
-            "preview_message": message_text,
         },
     )

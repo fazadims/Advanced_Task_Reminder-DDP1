@@ -6,7 +6,7 @@
 <div id="pomodoro-app"
      data-task-id="{{ task.pk }}"
      data-start-url="{% url 'tasks:start_focus_session' %}"
-     data-finish-url-template="/tasks/focus/__ID__/finish/"
+     data-finish-url-template="{% url 'tasks:finish_focus_session' 0 %}"
      data-csrf="{{ csrf_token }}"
      class="max-w-xl mx-auto">
 
@@ -37,7 +37,7 @@
       <select id="checkpoint-select" name="checkpoint_id"
               class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
         <option value="">General Task Focus</option>
-        {% for cp in checkpoints|default:task.checkpoints.all %}
+        {% for cp in checkpoints %}
           <option value="{{ cp.pk }}" {% if cp.is_done %}class="text-slate-400"{% endif %}>
             {% if cp.is_done %}[Done] {% endif %}{{ cp.title }} ({{ cp.estimated_minutes }}m)
           </option>
@@ -47,15 +47,15 @@
 
     <div class="space-y-3">
       <div class="grid grid-cols-3 gap-2">
-        <button type="button" data-mode="POMODORO_25_5" data-minutes="25"
+        <button type="button" data-mode="POMODORO_25_5" data-minutes="25" aria-pressed="true"
                 class="mode-btn py-2 px-3 rounded-xl border border-indigo-600 bg-indigo-50 text-indigo-700 text-xs font-semibold transition">
           Pomodoro 25/5
         </button>
-        <button type="button" data-mode="DEEP_50_10" data-minutes="50"
+        <button type="button" data-mode="DEEP_50_10" data-minutes="50" aria-pressed="false"
                 class="mode-btn py-2 px-3 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold transition">
           Deep Work 50/10
         </button>
-        <button type="button" data-mode="CUSTOM" data-minutes="30"
+        <button type="button" data-mode="CUSTOM" data-minutes="30" aria-pressed="false"
                 class="mode-btn py-2 px-3 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold transition">
           Custom
         </button>
@@ -72,7 +72,7 @@
       <div id="timer-display" class="text-6xl sm:text-7xl font-mono font-extrabold tracking-tight text-slate-900">
         25:00
       </div>
-      <p id="timer-status" class="text-xs font-medium text-slate-500 mt-2">Ready to focus</p>
+      <p id="timer-status" aria-live="polite" class="text-xs font-medium text-slate-500 mt-2">Ready to focus</p>
     </div>
 
     <label for="mark-checkpoint-done" class="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer">

@@ -1,37 +1,98 @@
-<div id="cp-{{ cp.pk }}" class="flex items-start justify-between gap-3 p-3 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition">
-  <div class="flex items-start gap-3 min-w-0">
-    <input type="checkbox"
-           {% if cp.is_done %}checked{% endif %}
-           hx-post="{% url 'tasks:toggle_checkpoint' cp.pk %}"
-           hx-target="#cp-{{ cp.pk }}"
-           hx-swap="outerHTML"
-           class="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
-    <div class="min-w-0">
-      <p class="text-sm font-medium {% if cp.is_done %}line-through text-slate-400{% else %}text-slate-900{% endif %}">
-        {{ cp.title }}
-      </p>
-      <div class="flex flex-wrap items-center gap-1.5 mt-1 text-xs">
-        <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">{{ cp.get_phase_display }}</span>
-        <span class="text-slate-500">Due {{ cp.target_deadline|date:"d M Y, H:i" }}</span>
-        <span class="text-slate-400">· {{ cp.estimated_minutes }}m</span>
-        {% if cp.is_ai_generated %}
-          <span class="px-2 py-0.5 rounded bg-purple-100 text-purple-700 font-semibold">AI</span>
-        {% endif %}
+<div id="cp-{{ cp.pk }}" class="p-3 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition">
+  <div class="flex items-start justify-between gap-3">
+    <div class="flex items-start gap-3 min-w-0">
+      <input type="checkbox"
+             {% if cp.is_done %}checked{% endif %}
+             hx-post="{% url 'tasks:toggle_checkpoint' cp.pk %}"
+             hx-target="#cp-{{ cp.pk }}"
+             hx-swap="outerHTML"
+             aria-label="Toggle checkpoint {{ cp.title }}"
+             class="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+      <div class="min-w-0">
+        <p class="text-sm font-medium {% if cp.is_done %}line-through text-slate-400{% else %}text-slate-900{% endif %}">
+          {{ cp.title }}
+        </p>
+        <div class="flex flex-wrap items-center gap-1.5 mt-1 text-xs">
+          <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">{{ cp.get_phase_display }}</span>
+          <span class="text-slate-500">Due {{ cp.target_deadline|date:"d M Y, H:i" }}</span>
+          <span class="text-slate-400">· {{ cp.estimated_minutes }}m</span>
+          {% if cp.is_ai_generated %}
+            <span class="px-2 py-0.5 rounded bg-purple-100 text-purple-700 font-semibold">AI</span>
+          {% endif %}
+        </div>
       </div>
+    </div>
+
+    <div class="flex items-center gap-1 shrink-0">
+      <button type="button"
+              onclick="var f = document.getElementById('cp-edit-{{ cp.pk }}'); if (f) f.classList.toggle('hidden');"
+              class="px-2 py-1 rounded-md text-xs font-medium text-slate-600 hover:bg-slate-100 transition">
+        Edit
+      </button>
+      <button type="button"
+              hx-post="{% url 'tasks:delete_checkpoint' cp.pk %}"
+              hx-target="#cp-{{ cp.pk }}"
+              hx-swap="outerHTML"
+              hx-confirm="Delete this checkpoint?"
+              class="px-2 py-1 rounded-md text-xs font-medium text-red-600 hover:bg-red-50 transition">
+        Delete
+      </button>
     </div>
   </div>
 
-  <div class="flex items-center gap-1 shrink-0">
-    <button type="button"
-            hx-post="{% url 'tasks:delete_checkpoint' cp.pk %}"
-            hx-target="#cp-{{ cp.pk }}"
-            hx-swap="outerHTML"
-            hx-confirm="Delete this checkpoint?"
-            class="px-2 py-1 rounded-md text-xs font-medium text-red-600 hover:bg-red-50 transition">
-      Delete
-    </button>
-  </div>
+  <form id="cp-edit-{{ cp.pk }}"
+        hx-post="{% url 'tasks:edit_checkpoint' cp.pk %}"
+        hx-target="#cp-{{ cp.pk }}"
+        hx-swap="outerHTML"
+        class="{% if not edit_error %}hidden {% endif %}mt-3 pt-3 border-t border-slate-100 space-y-2.5">
+    {% csrf_token %}
+    <div class="grid grid-cols-1 sm:grid-cols-12 gap-2">
+      <div class="sm:col-span-4">
+        <label for="edit-cp-title-{{ cp.pk }}" class="block text-[11px] font-medium text-slate-600 mb-0.5">Title</label>
+        <input id="edit-cp-title-{{ cp.pk }}" type="text" name="title" value="{{ cp.title }}" required aria-label="Checkpoint title"
+               class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs">
+      </div>
+      <div class="sm:col-span-3">
+        <label for="edit-cp-phase-{{ cp.pk }}" class="block text-[11px] font-medium text-slate-600 mb-0.5">Phase</label>
+        <select id="edit-cp-phase-{{ cp.pk }}" name="phase" aria-label="Checkpoint phase"
+                class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs bg-white">
+          <option value="RESEARCH" {% if cp.phase == 'RESEARCH' %}selected{% endif %}>Riset &amp; Pahami Soal</option>
+          <option value="DRAFT" {% if cp.phase == 'DRAFT' %}selected{% endif %}>Pengerjaan Inti / Draft</option>
+          <option value="REVIEW" {% if cp.phase == 'REVIEW' %}selected{% endif %}>Review &amp; Testing</option>
+          <option value="SUBMIT" {% if cp.phase == 'SUBMIT' %}selected{% endif %}>Finalisasi &amp; Submit</option>
+          <option value="CUSTOM" {% if cp.phase == 'CUSTOM' %}selected{% endif %}>Kustom</option>
+        </select>
+      </div>
+      <div class="sm:col-span-3">
+        <label for="edit-cp-deadline-{{ cp.pk }}" class="block text-[11px] font-medium text-slate-600 mb-0.5">Target Deadline</label>
+        <input id="edit-cp-deadline-{{ cp.pk }}" type="datetime-local" name="target_deadline" value="{{ cp.target_deadline|date:'Y-m-d\TH:i' }}" required aria-label="Checkpoint target deadline"
+               class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs">
+      </div>
+      <div class="sm:col-span-2">
+        <label for="edit-cp-minutes-{{ cp.pk }}" class="block text-[11px] font-medium text-slate-600 mb-0.5">Est. (min)</label>
+        <input id="edit-cp-minutes-{{ cp.pk }}" type="number" name="estimated_minutes" value="{{ cp.estimated_minutes }}" min="1" max="600" aria-label="Estimated minutes"
+               class="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs">
+      </div>
+    </div>
+    {% if edit_error %}
+      <p class="text-xs text-red-600 mt-1">{{ edit_error }}</p>
+    {% endif %}
+    <div class="flex items-center justify-end gap-2">
+      <button type="button"
+              onclick="var f = document.getElementById('cp-edit-{{ cp.pk }}'); if (f) f.classList.add('hidden');"
+              class="px-2.5 py-1 rounded-md border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-100 transition">
+        Cancel
+      </button>
+      <button type="submit"
+              class="px-3 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition">
+        Save
+      </button>
+    </div>
+  </form>
 </div>
 {% if include_oob_progress %}
   {% include "tasks/partials/progress_bar.html" with task=cp.task oob=True %}
+{% endif %}
+{% if include_oob_reminders %}
+  {% include "tasks/partials/upcoming_reminders.html" with task=cp.task reminders=reminders oob=True %}
 {% endif %}

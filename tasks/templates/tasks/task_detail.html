@@ -36,7 +36,7 @@
         <div><p class="text-xs text-slate-500">Deadline</p><p class="font-semibold {% if task.is_overdue %}text-red-600{% else %}text-slate-900{% endif %}">{{ task.deadline|date:"d M Y, H:i" }}</p></div>
         <div><p class="text-xs text-slate-500">Weight</p><p class="font-semibold text-slate-900">{{ task.weight_percentage }}%</p></div>
         <div><p class="text-xs text-slate-500">Estimated</p><p class="font-semibold text-slate-900">{{ task.estimated_minutes }} min</p></div>
-        <div><p class="text-xs text-slate-500">Actual Focus</p><p class="font-semibold text-indigo-600">{{ total_focus_minutes|default:task.total_focus_minutes }} min</p></div>
+        <div><p class="text-xs text-slate-500">Actual Focus</p><p class="font-semibold text-indigo-600">{{ total_focus_minutes|default:0 }} min</p></div>
       </div>
     </section>
 
@@ -48,30 +48,44 @@
           <h2 class="text-lg font-bold text-slate-900">Checkpoints</h2>
           <p class="text-xs text-slate-500">Break down this assignment into actionable milestones.</p>
         </div>
-        <div class="flex flex-wrap gap-2 text-xs font-semibold">
-          <button type="button" hx-post="{% url 'tasks:regenerate_checkpoints' task.pk %}" hx-target="#checkpoint-list" hx-swap="outerHTML" hx-confirm="Auto-generate smart checkpoints for this task?" class="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700">Auto-Generate Checkpoints</button>
-          <button type="button" hx-post="{% url 'tasks:preview_ai_checkpoints' task.pk %}" hx-target="#ai-checkpoint-preview-box" hx-swap="innerHTML" class="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white">Suggest Sub-tasks (AI)</button>
+        <div class="flex flex-wrap items-center gap-2 text-xs font-semibold">
+          <button type="button" hx-post="{% url 'tasks:regenerate_checkpoints' task.pk %}" hx-target="#checkpoint-list" hx-swap="outerHTML" hx-confirm="Replace all incomplete checkpoints with auto-generated milestones? Completed checkpoints will be kept." class="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700">Auto-Generate Checkpoints</button>
+          <button type="button" hx-post="{% url 'tasks:preview_ai_checkpoints' task.pk %}" hx-target="#ai-checkpoint-preview-box" hx-swap="innerHTML" hx-disabled-elt="this" hx-indicator="#ai-suggest-spinner" class="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white">Suggest Sub-tasks (AI)</button>
+          <span id="ai-suggest-spinner" class="htmx-indicator text-xs text-purple-600 font-medium">Loading...</span>
         </div>
       </div>
 
       <div id="ai-checkpoint-preview-box"></div>
 
-      {% include "tasks/partials/checkpoint_list.html" with checkpoints=checkpoints task=task include_oob_progress=False %}
+      {% include "tasks/partials/checkpoint_list.html" with checkpoints=checkpoints task=task include_oob_progress=False include_oob_reminders=False %}
 
-      <form hx-post="{% url 'tasks:add_checkpoint' task.pk %}" hx-target="#checkpoint-list" hx-swap="outerHTML" hx-on::after-request="if(event.detail.successful) this.reset()" class="pt-4 border-t border-slate-100 space-y-3">
+      <form hx-post="{% url 'tasks:add_checkpoint' task.pk %}" hx-target="#checkpoint-list" hx-swap="outerHTML" hx-on::after-request="if(event.detail.successful) { this.reset(); var e = document.getElementById('checkpoint-form-error'); if (e) e.innerHTML = ''; }" class="pt-4 border-t border-slate-100 space-y-3">
         {% csrf_token %}
         <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Add Checkpoint</h3>
-        <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
-          <input type="text" name="title" required placeholder="e.g., Draft UML diagram or write unit tests" class="sm:col-span-5 rounded-lg border border-slate-300 px-3 py-2 text-sm">
-          <select name="phase" class="sm:col-span-3 rounded-lg border border-slate-300 px-2.5 py-2 text-sm bg-white">
-            <option value="RESEARCH">Riset &amp; Pahami Soal</option>
-            <option value="DRAFT">Pengerjaan Inti / Draft</option>
-            <option value="REVIEW">Review &amp; Testing</option>
-            <option value="SUBMIT">Finalisasi &amp; Submit</option>
-            <option value="CUSTOM" selected>Kustom</option>
-          </select>
-          <input type="datetime-local" name="target_deadline" class="sm:col-span-3 rounded-lg border border-slate-300 px-2.5 py-2 text-sm">
-          <input type="number" name="estimated_minutes" value="30" min="5" max="600" placeholder="Min" class="sm:col-span-1 rounded-lg border border-slate-300 px-2 py-2 text-sm">
+        <div id="checkpoint-form-error" class="text-xs text-red-600"></div>
+        <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+          <div class="sm:col-span-4">
+            <label for="add-cp-title" class="block text-[11px] font-medium text-slate-600 mb-1">Title</label>
+            <input id="add-cp-title" type="text" name="title" required aria-label="Checkpoint title" placeholder="e.g., Draft UML diagram or write unit tests" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+          </div>
+          <div class="sm:col-span-3">
+            <label for="add-cp-phase" class="block text-[11px] font-medium text-slate-600 mb-1">Phase</label>
+            <select id="add-cp-phase" name="phase" aria-label="Checkpoint phase" class="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm bg-white">
+              <option value="RESEARCH">Riset &amp; Pahami Soal</option>
+              <option value="DRAFT">Pengerjaan Inti / Draft</option>
+              <option value="REVIEW">Review &amp; Testing</option>
+              <option value="SUBMIT">Finalisasi &amp; Submit</option>
+              <option value="CUSTOM" selected>Kustom</option>
+            </select>
+          </div>
+          <div class="sm:col-span-3">
+            <label for="add-cp-deadline" class="block text-[11px] font-medium text-slate-600 mb-1">Target Deadline</label>
+            <input id="add-cp-deadline" type="datetime-local" name="target_deadline" aria-label="Checkpoint target deadline" class="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm">
+          </div>
+          <div class="sm:col-span-2">
+            <label for="add-cp-minutes" class="block text-[11px] font-medium text-slate-600 mb-1">Est. (min)</label>
+            <input id="add-cp-minutes" type="number" name="estimated_minutes" value="30" min="5" max="600" aria-label="Estimated minutes" placeholder="Min" class="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm">
+          </div>
         </div>
         <div class="flex justify-end"><button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold">+ Add Checkpoint</button></div>
       </form>
@@ -91,7 +105,7 @@
       <p class="text-xs text-slate-600 bg-slate-50 rounded-lg p-3 border border-slate-100">{{ task.priority_reason|default:"Priority score updates automatically from deadline urgency, weight, and difficulty." }}</p>
       <div class="grid grid-cols-2 gap-2 text-xs">
         <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-100"><span class="text-slate-500 block">Difficulty</span><span class="font-bold">{{ task.difficulty }} / 5</span></div>
-        <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-100"><span class="text-slate-500 block">Focus / Est.</span><span class="font-bold">{{ total_focus_minutes|default:task.total_focus_minutes }} / {{ task.estimated_minutes }}m</span></div>
+        <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-100"><span class="text-slate-500 block">Focus / Est.</span><span class="font-bold">{{ total_focus_minutes|default:0 }} / {{ task.estimated_minutes }}m</span></div>
       </div>
     </section>
 
@@ -101,19 +115,21 @@
         <a href="{% url 'tasks:focus_mode' task.pk %}" class="text-xs text-indigo-600 hover:underline font-medium">Start &rarr;</a>
       </div>
       {% if focus_sessions %}
-        <table class="w-full text-xs text-left">
-          <thead class="text-slate-500 border-b border-slate-100"><tr><th class="py-1.5">Mode</th><th class="py-1.5">Min</th><th class="py-1.5">Status</th><th class="py-1.5 text-right">Date</th></tr></thead>
-          <tbody class="divide-y divide-slate-100">
-            {% for s in focus_sessions %}
-              <tr>
-                <td class="py-2 font-medium">{{ s.get_mode_display }}</td>
-                <td class="py-2 text-slate-600">{{ s.actual_minutes }}/{{ s.planned_minutes }}m</td>
-                <td class="py-2"><span class="px-1.5 py-0.5 rounded text-[11px] font-medium {% if s.status == 'COMPLETED' %}bg-emerald-100 text-emerald-700{% else %}bg-slate-100 text-slate-600{% endif %}">{{ s.get_status_display }}</span></td>
-                <td class="py-2 text-right text-slate-500">{{ s.started_at|date:"d M, H:i" }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left">
+            <thead class="text-slate-500 border-b border-slate-100"><tr><th class="py-1.5">Mode</th><th class="py-1.5">Min</th><th class="py-1.5">Status</th><th class="py-1.5 text-right">Date</th></tr></thead>
+            <tbody class="divide-y divide-slate-100">
+              {% for s in focus_sessions %}
+                <tr>
+                  <td class="py-2 font-medium">{{ s.get_mode_display }}</td>
+                  <td class="py-2 text-slate-600">{{ s.actual_minutes }}/{{ s.planned_minutes }}m</td>
+                  <td class="py-2"><span class="px-1.5 py-0.5 rounded text-[11px] font-medium {% if s.status == 'COMPLETED' %}bg-emerald-100 text-emerald-700{% else %}bg-slate-100 text-slate-600{% endif %}">{{ s.get_status_display }}</span></td>
+                  <td class="py-2 text-right text-slate-500">{{ s.started_at|date:"d M, H:i" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       {% else %}
         <p class="text-xs text-slate-500">No focus sessions logged yet.</p>
       {% endif %}
@@ -124,19 +140,7 @@
         <h2 class="text-sm font-bold text-slate-900 uppercase">Upcoming Reminders</h2>
         <a href="{% url 'alerts:inbox' %}" class="text-xs text-indigo-600 hover:underline font-medium">Inbox &rarr;</a>
       </div>
-      {% if reminders %}
-        <ul class="space-y-2">
-          {% for r in reminders %}
-            <li class="p-3 rounded-xl border text-xs {% if r.escalation_level == 3 %}bg-red-50 border-red-200{% elif r.escalation_level == 2 %}bg-amber-50 border-amber-200{% else %}bg-blue-50 border-blue-200{% endif %}">
-              <div class="flex justify-between gap-2 mb-1"><span class="font-bold">L{{ r.escalation_level }} · {{ r.get_escalation_level_display }}</span><span class="text-slate-600">{{ r.get_status_display }}</span></div>
-              <p class="text-slate-700">{% if r.message %}{{ r.message }}{% elif r.checkpoint %}{{ r.checkpoint.title }}{% else %}{{ task.title }}{% endif %}</p>
-              <p class="text-[11px] text-slate-500 mt-1">{{ r.scheduled_for|date:"d M Y, H:i" }}</p>
-            </li>
-          {% endfor %}
-        </ul>
-      {% else %}
-        <p class="text-xs text-slate-500">No scheduled reminders for this task.</p>
-      {% endif %}
+      {% include "tasks/partials/upcoming_reminders.html" with task=task reminders=reminders oob=False %}
     </section>
   </div>
 </div>

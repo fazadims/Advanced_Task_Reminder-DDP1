@@ -9,7 +9,7 @@
   </div>
 
   <form method="get" class="flex items-center gap-2">
-    <select name="course" onchange="this.form.submit()"
+    <select name="course" aria-label="Filter by course" onchange="this.form.submit()"
             class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
       <option value="">All Courses</option>
       {% for c in courses %}
@@ -41,6 +41,7 @@
         </thead>
         <tbody class="divide-y divide-slate-100">
           {% for task in page_obj %}
+            {% with actual=task.effective_actual_minutes diff=task.duration_diff_minutes %}
             <tr class="hover:bg-slate-50 transition">
               <td class="px-5 py-3.5 font-semibold text-slate-900">
                 <a href="{% url 'tasks:task_detail' task.pk %}" class="hover:text-indigo-600 transition">
@@ -62,20 +63,29 @@
                 {% endif %}
               </td>
               <td class="px-5 py-3.5 text-slate-700 whitespace-nowrap">
-                {{ task.estimated_minutes }} mnt &rarr; <strong>{{ task.effective_actual_minutes }} mnt</strong>
+                {{ task.estimated_minutes }} mnt &rarr; <strong>{{ actual }} mnt</strong>
               </td>
               <td class="px-5 py-3.5 text-right whitespace-nowrap">
-                {% if task.duration_diff_minutes <= 0 %}
+                {% if actual == 0 %}
+                  <span class="inline-block px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold">
+                    Belum dilacak
+                  </span>
+                {% elif diff == 0 %}
                   <span class="inline-block px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
-                    Lebih cepat {{ task.duration_diff_minutes|stringformat:"d"|cut:"-" }} mnt
+                    Tepat waktu
+                  </span>
+                {% elif diff < 0 %}
+                  <span class="inline-block px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
+                    Lebih cepat {{ diff|stringformat:"d"|cut:"-" }} mnt
                   </span>
                 {% else %}
                   <span class="inline-block px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">
-                    Lebih lama {{ task.duration_diff_minutes }} mnt
+                    Lebih lama {{ diff }} mnt
                   </span>
                 {% endif %}
               </td>
             </tr>
+            {% endwith %}
           {% endfor %}
         </tbody>
       </table>
@@ -86,13 +96,13 @@
         <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
         <div class="flex items-center gap-2">
           {% if page_obj.has_previous %}
-            <a href="?page={{ page_obj.previous_page_number }}{% if request.GET.course %}&course={{ request.GET.course }}{% endif %}"
+            <a href="?page={{ page_obj.previous_page_number }}{% if request.GET.course %}&course={{ request.GET.course|urlencode }}{% endif %}"
                class="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 font-medium">
               &larr; Previous
             </a>
           {% endif %}
           {% if page_obj.has_next %}
-            <a href="?page={{ page_obj.next_page_number }}{% if request.GET.course %}&course={{ request.GET.course }}{% endif %}"
+            <a href="?page={{ page_obj.next_page_number }}{% if request.GET.course %}&course={{ request.GET.course|urlencode }}{% endif %}"
                class="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 font-medium">
               Next &rarr;
             </a>

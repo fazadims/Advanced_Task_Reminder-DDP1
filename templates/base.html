@@ -11,21 +11,23 @@
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}' class="bg-slate-50 text-slate-900 min-h-screen">
   <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
     <nav class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
-      <div class="flex items-center gap-5">
-        <a href="{% url 'tasks:task_list' %}" class="font-bold text-indigo-600 text-lg">ATR</a>
+      <div class="flex items-center gap-5 min-w-0 flex-1">
+        <a href="{% url 'tasks:task_list' %}" class="font-bold text-indigo-600 text-lg shrink-0">ATR</a>
         {% if user.is_authenticated %}
+        {% with url_name=request.resolver_match.url_name %}
         <div class="flex items-center gap-4 text-sm font-medium text-slate-600 overflow-x-auto">
-          <a href="{% url 'tasks:task_list' %}" class="hover:text-indigo-600">Tasks</a>
-          <a href="{% url 'tasks:task_history' %}" class="hover:text-indigo-600">History</a>
-          <a href="{% url 'alerts:inbox' %}" class="hover:text-indigo-600">Alerts</a>
-          <a href="{% url 'alerts:daily_digest' %}" class="hover:text-indigo-600 whitespace-nowrap">Daily Digest</a>
-          <a href="{% url 'alerts:telegram_connect' %}" class="hover:text-indigo-600">Telegram</a>
+          <a href="{% url 'tasks:task_list' %}" class="whitespace-nowrap {% if url_name == 'task_list' %}text-indigo-600 font-semibold{% else %}hover:text-indigo-600{% endif %}" {% if url_name == 'task_list' %}aria-current="page"{% endif %}>Tasks</a>
+          <a href="{% url 'tasks:task_history' %}" class="whitespace-nowrap {% if url_name == 'task_history' %}text-indigo-600 font-semibold{% else %}hover:text-indigo-600{% endif %}" {% if url_name == 'task_history' %}aria-current="page"{% endif %}>History</a>
+          <a href="{% url 'alerts:inbox' %}" class="whitespace-nowrap {% if url_name == 'inbox' %}text-indigo-600 font-semibold{% else %}hover:text-indigo-600{% endif %}" {% if url_name == 'inbox' %}aria-current="page"{% endif %}>Alerts</a>
+          <a href="{% url 'alerts:daily_digest' %}" class="whitespace-nowrap {% if url_name == 'daily_digest' %}text-indigo-600 font-semibold{% else %}hover:text-indigo-600{% endif %}" {% if url_name == 'daily_digest' %}aria-current="page"{% endif %}>Daily Digest</a>
+          <a href="{% url 'alerts:telegram_connect' %}" class="whitespace-nowrap {% if url_name == 'telegram_connect' %}text-indigo-600 font-semibold{% else %}hover:text-indigo-600{% endif %}" {% if url_name == 'telegram_connect' %}aria-current="page"{% endif %}>Telegram</a>
         </div>
+        {% endwith %}
         {% endif %}
       </div>
       <div class="flex items-center gap-2.5 text-sm shrink-0">
         {% if user.is_authenticated %}
-          <button id="enable-desktop-alerts" type="button" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100">Enable Desktop Alerts</button>
+          <button id="enable-desktop-alerts" type="button" class="px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100 whitespace-nowrap"><span class="hidden sm:inline">Enable Desktop </span>Alerts</button>
           <span class="hidden md:inline text-slate-500">{{ user.username }}</span>
           <form method="post" action="{% url 'logout' %}" class="inline">
             {% csrf_token %}
@@ -43,7 +45,7 @@
     {% if messages %}
       <div class="space-y-2 mb-5">
         {% for message in messages %}
-          <div class="px-4 py-3 rounded-lg text-sm border {% if 'error' in message.tags %}bg-red-50 border-red-200 text-red-800{% elif 'success' in message.tags %}bg-emerald-50 border-emerald-200 text-emerald-800{% elif 'warning' in message.tags %}bg-amber-50 border-amber-200 text-amber-800{% else %}bg-blue-50 border-blue-200 text-blue-800{% endif %}">{{ message }}</div>
+          <div role="{% if 'error' in message.tags or 'warning' in message.tags %}alert{% else %}status{% endif %}" class="px-4 py-3 rounded-lg text-sm border {% if 'error' in message.tags %}bg-red-50 border-red-200 text-red-800{% elif 'success' in message.tags %}bg-emerald-50 border-emerald-200 text-emerald-800{% elif 'warning' in message.tags %}bg-amber-50 border-amber-200 text-amber-800{% else %}bg-blue-50 border-blue-200 text-blue-800{% endif %}">{{ message }}</div>
         {% endfor %}
       </div>
     {% endif %}
@@ -55,5 +57,20 @@
     <script src="{% static 'js/notifications.js' %}" defer></script>
   {% endif %}
   {% block extra_js %}{% endblock %}
+  <script>
+    document.body.addEventListener('htmx:beforeSwap', function (evt) {
+      var status = evt.detail && evt.detail.xhr ? evt.detail.xhr.status : 0;
+      if (status === 400 || status === 422) {
+        evt.detail.shouldSwap = true;
+        evt.detail.isError = false;
+      }
+    });
+    document.body.addEventListener('htmx:configRequest', function (evt) {
+      var match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+      if (match && match[1]) {
+        evt.detail.headers['X-CSRFToken'] = decodeURIComponent(match[1]);
+      }
+    });
+  </script>
 </body>
 </html>
