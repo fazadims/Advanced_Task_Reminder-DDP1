@@ -418,7 +418,7 @@ class TelegramSecurityAndReliabilityTests(TestCase):
         self.assertEqual(len(public_kb), 2)
         self.assertEqual(
             public_kb[1],
-            [{"text": "🎯 Focus Mode", "url": expected_public_url}],
+            [{"text": "🎯 Mode Fokus", "url": expected_public_url}],
         )
 
     def test_run_telegram_bot_once_acks_final_offset(self):
@@ -1146,7 +1146,7 @@ class CheckpointsAndAlertsConsistencyTests(TestCase):
         self.assertEqual(rem.status, "PENDING")
         self.assertEqual(rem.escalation_level, 3)
         self.assertNotEqual(rem.message, "Old cached gentle message")
-        self.assertIn("snooze", rem.message.lower())
+        self.assertIn("ditunda", rem.message.lower())
 
     def test_alerts_done_on_checkpointless_task_marks_task_done_and_cancels_siblings(self):
         task_no_cp = Task.objects.create(
@@ -1468,7 +1468,7 @@ class EscalationDigestQuietHoursAndAIHardeningTests(TestCase):
         cp_items = [item for item in digest["items"] if item["checkpoint_id"] == yesterday_cp.pk]
         self.assertEqual(len(cp_items), 1)
         self.assertTrue(cp_items[0]["is_overdue"])
-        self.assertIn("[OVERDUE CP]", digest["summary_text"])
+        self.assertIn("[CP TERLAMBAT]", digest["summary_text"])
 
         # task_with_cp is in raw upcoming_48h_tasks, but deduplicated out of unified items.
         self.assertIn(task_with_cp, digest["upcoming_48h_tasks"])

@@ -47,7 +47,7 @@ COACHING_TEMPLATES: dict[tuple[str, int], str] = {
     ),
     ("friendly", 2): (
         "Yuk semangat! '{checkpoint}' ({task}) tinggal {hours} jam lagi. "
-        "Buka Focus Mode 25 menit sekarang biar besok lebih lega."
+        "Buka Mode Fokus 25 menit sekarang biar besok lebih lega."
     ),
     ("friendly", 3): (
         "Kamu pasti bisa! '{checkpoint}' ({task}) tinggal {hours} jam lagi. "
@@ -63,25 +63,25 @@ COACHING_TEMPLATES: dict[tuple[str, int], str] = {
     ),
     ("strict", 3): (
         "KRITIS ({hours} jam tersisa): '{checkpoint}' untuk {task} harus beres SEKARANG. "
-        "Masuk Focus Mode tanpa penundaan."
+        "Masuk Mode Fokus tanpa penundaan."
     ),
-    ("minimal", 1): "[H-3d] {checkpoint} | {task} — sisa {hours} jam.",
-    ("minimal", 2): "[H-1d] {checkpoint} | {task} — sisa {hours} jam. Prioritaskan hari ini.",
+    ("minimal", 1): "[H-3 hari] {checkpoint} | {task} — sisa {hours} jam.",
+    ("minimal", 2): "[H-1 hari] {checkpoint} | {task} — sisa {hours} jam. Prioritaskan hari ini.",
     ("minimal", 3): "[KRITIS] {checkpoint} | {task} — sisa {hours} jam. Kerjakan sekarang.",
 }
 
 # Used when reminder.snooze_count >= 2 to counter chronic postponement.
 ANTI_SNOOZE_TEMPLATES: dict[str, str] = {
     "friendly": (
-        "Sudah beberapa kali di-snooze nih! Coba mulai 5 menit saja untuk "
+        "Sudah beberapa kali ditunda nih! Coba mulai 5 menit saja untuk "
         "'{checkpoint}' ({task}), sisa {hours} jam."
     ),
     "strict": (
-        "Cukup menunda! '{checkpoint}' ({task}) sudah sering di-snooze dan tinggal "
+        "Cukup menunda! '{checkpoint}' ({task}) sudah sering ditunda dan tinggal "
         "{hours} jam. Mulai 10 menit sekarang."
     ),
     "minimal": (
-        "[Anti-Snooze] {checkpoint} | {task} — sisa {hours} jam. Mulai langkah pertama sekarang."
+        "[Anti-Tunda] {checkpoint} | {task} — sisa {hours} jam. Mulai langkah pertama sekarang."
     ),
 }
 
@@ -95,7 +95,7 @@ OVERDUE_TEMPLATES: dict[str, str] = {
         "TERLAMBAT ({elapsed}): '{checkpoint}' ({task}) sudah lewat deadline. "
         "Hentikan distraksi dan tuntaskan SEKARANG."
     ),
-    "minimal": "[OVERDUE {elapsed}] {checkpoint} | {task} — selesaikan segera.",
+    "minimal": "[TERLAMBAT {elapsed}] {checkpoint} | {task} — selesaikan segera.",
 }
 
 

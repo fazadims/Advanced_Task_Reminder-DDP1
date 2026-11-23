@@ -222,25 +222,25 @@ def build_daily_digest(
     items = unified[:cap]
     overflow_count = max(0, total_items - len(items))
 
-    slot_label = "Morning Briefing" if normalized_slot == "MORNING" else "Evening Recap"
+    slot_label = "Ringkasan Pagi" if normalized_slot == "MORNING" else "Rekap Malam"
     header = f"ATR {slot_label} ({digest_date.strftime('%d %b %Y')})"
 
     if total_items == 0:
         summary_text = (
             f"{header}\n"
-            "Tidak ada tugas overdue, checkpoint hari ini, atau deadline 48 jam ke depan. Mantap!"
+            "Tidak ada tugas terlambat, checkpoint hari ini, atau tenggat 48 jam ke depan. Mantap!"
         )
     else:
         lines = [header]
         for idx, item in enumerate(items, start=1):
             if item["kind"] == "overdue_task":
-                tag = "[OVERDUE]"
+                tag = "[TERLAMBAT]"
                 label = item["title"]
             elif item["kind"] == "today_checkpoint":
-                tag = "[OVERDUE CP]" if item["is_overdue"] else "[CHECKPOINT]"
+                tag = "[CP TERLAMBAT]" if item["is_overdue"] else "[CHECKPOINT]"
                 label = f"{item['title']} ({item['task_title']})"
             else:
-                tag = "[48H]"
+                tag = "[≤48 JAM]"
                 label = item["title"]
 
             course_prefix = f"[{item['course_code']}] " if item["course_code"] else ""

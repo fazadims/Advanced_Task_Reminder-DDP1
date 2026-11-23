@@ -185,6 +185,10 @@ class CheckpointForm(forms.ModelForm):
             attrs={"type": "datetime-local", "class": INPUT_CLASS},
         ),
         label="Target Tenggat",
+        error_messages={
+            "required": "Target tenggat checkpoint wajib diisi.",
+            "invalid": "Format tanggal/waktu tidak valid. Gunakan pemilih tanggal.",
+        },
     )
 
     class Meta:
@@ -195,6 +199,17 @@ class CheckpointForm(forms.ModelForm):
             "phase": "Fase Pengerjaan",
             "target_deadline": "Target Tenggat",
             "estimated_minutes": "Estimasi Durasi (menit)",
+        }
+        error_messages = {
+            "title": {
+                "required": "Judul checkpoint wajib diisi.",
+                "max_length": "Judul checkpoint maksimal %(limit_value)d karakter.",
+            },
+            "phase": {"invalid_choice": "Pilih fase pengerjaan yang tersedia."},
+            "estimated_minutes": {
+                "invalid": "Estimasi durasi harus berupa angka (menit).",
+                "min_value": "Estimasi durasi minimal 1 menit.",
+            },
         }
         widgets = {
             "title": forms.TextInput(
@@ -226,7 +241,7 @@ class CheckpointForm(forms.ModelForm):
     def clean_target_deadline(self):
         target_deadline = self.cleaned_data.get("target_deadline")
         if not target_deadline:
-            raise forms.ValidationError("Target deadline checkpoint wajib diisi.")
+            raise forms.ValidationError("Target tenggat checkpoint wajib diisi.")
         if self.task is not None and target_deadline > self.task.deadline:
             raise forms.ValidationError(
                 "Target deadline checkpoint tidak boleh melewati deadline tugas."

@@ -149,7 +149,7 @@
   <script src="{% static 'js/ux.js' %}" defer></script>
 
   {% if user.is_authenticated %}
-    <div id="alert-toast-container" data-poll-url="{% url 'alerts:poll' %}" class="fixed bottom-4 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] space-y-2"></div>
+    <div id="alert-toast-container" aria-live="polite" data-poll-url="{% url 'alerts:poll' %}" class="fixed bottom-4 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] space-y-2"></div>
     <script src="{% static 'js/notifications.js' %}" defer></script>
   {% endif %}
   {% block extra_js %}{% endblock %}

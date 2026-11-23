@@ -430,6 +430,10 @@
         cpSelect.value = '';
         if (markDone) markDone.checked = false;
       }
+      if (cpMarked) {
+        // Checkpoint completed -> refresh alert toasts & nav badge immediately.
+        document.body.dispatchEvent(new CustomEvent('remindersChanged'));
+      }
     }
 
     sessionId = null;

@@ -8,7 +8,7 @@
 <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
   <div>
     <h1 class="text-2xl font-extrabold tracking-tight text-slate-900">Daftar Tugas</h1>
-    <p class="text-sm text-slate-500 mt-0.5">Pantau deadline, cicil checkpoint, dan kelola prioritas kuliahmu.</p>
+    <p class="text-sm text-slate-600 mt-0.5">Pantau deadline, cicil checkpoint, dan kelola prioritas kuliahmu.</p>
   </div>
   <a href="{% url 'tasks:task_create' %}"
      class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-sm transition">
@@ -129,7 +129,7 @@
             <span class="ml-auto px-2 py-0.5 rounded-full border font-semibold {{ prio.badge_class }}">{{ prio.label }}</span>
           </div>
 
-          <a href="{% url 'tasks:task_detail' task.pk %}" class="block text-base font-bold text-slate-900 hover:text-indigo-600 leading-snug transition">
+          <a href="{% url 'tasks:task_detail' task.pk %}" class="block text-base font-bold text-slate-900 hover:text-indigo-600 leading-snug break-words transition">
             {{ task.title }}
           </a>
 
@@ -169,9 +169,9 @@
               <span class="text-slate-500">
                 Progres{% if cp_stat.total > 0 %} <span class="text-slate-500 tabular-nums">· {{ cp_stat.done }}/{{ cp_stat.total }} langkah</span>{% endif %}
               </span>
-              <span class="font-bold tabular-nums {% if cp_stat.percent == 100 %}text-emerald-600{% else %}text-indigo-600{% endif %}">{{ cp_stat.percent }}%</span>
+              <span class="font-bold tabular-nums {% if cp_stat.percent == 100 %}text-emerald-700{% else %}text-indigo-600{% endif %}">{{ cp_stat.percent }}%</span>
             </div>
-            <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+            <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden" role="progressbar" aria-label="Progres tugas" aria-valuenow="{{ cp_stat.percent }}" aria-valuemin="0" aria-valuemax="100">
               <div class="h-full rounded-full transition-all duration-300 {% if cp_stat.percent == 100 %}bg-emerald-500{% else %}bg-indigo-600{% endif %}" style="width: {{ cp_stat.percent }}%"></div>
             </div>
           </div>
@@ -181,9 +181,12 @@
           <a href="{% url 'tasks:task_detail' task.pk %}" class="flex-1 text-center py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 transition">
             Detail
           </a>
+          {% if task.status != 'ARCHIVED' %}
           <a href="{% url 'tasks:focus_mode' task.pk %}" class="flex-1 text-center py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition">
             Mode Fokus
           </a>
+          {% endif %}
+          {% if task.status != 'ARCHIVED' %}
           <form method="post" action="{% url 'tasks:task_quick_done' task.pk %}" class="shrink-0">
             {% csrf_token %}
             <input type="hidden" name="next" value="{{ request.get_full_path }}">
@@ -197,6 +200,7 @@
               </button>
             {% endif %}
           </form>
+          {% endif %}
         </div>
       </article>
       {% endwith %}

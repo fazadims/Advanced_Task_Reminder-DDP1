@@ -156,6 +156,12 @@
         },
         body,
       });
+      if (res.redirected && res.url.includes('/login/')) {
+        // Session expired: the action did NOT run. Send the user to log in again.
+        const next = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/login/?next=${next}`;
+        return;
+      }
       if (res.ok) {
         card.remove();
         updateNavBadge(Math.max(0, currentAlertCount - 1));
@@ -267,7 +273,7 @@
       mkBtn(
         'Selesai',
         () => act(done, '', card, 'Ditandai selesai!', 'success'),
-        'px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-700 text-xs font-semibold disabled:opacity-50',
+        'px-2 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white border border-emerald-700 text-xs font-semibold disabled:opacity-50',
       ),
       mkBtn('Tutup', () => act(dismiss, '', card, 'Pengingat ditutup', 'info')),
     );

@@ -2,8 +2,8 @@
 {% phase_choices as checkpoint_phases %}
 {% with cp_dl=cp.target_deadline|relative_deadline %}
 <div id="cp-{{ cp.pk }}" class="p-3.5 rounded-xl border transition {% if cp.is_done %}border-slate-200/80 bg-slate-50/70{% elif cp_dl.is_overdue %}border-rose-200 bg-rose-50/30 hover:border-rose-300{% else %}border-slate-200 bg-white hover:border-slate-300{% endif %}">
-  <div class="flex items-start justify-between gap-3">
-    <div class="flex items-start gap-3 min-w-0">
+  <div class="flex flex-wrap sm:flex-nowrap items-start justify-between gap-x-3 gap-y-2">
+    <div class="flex items-start gap-3 min-w-0 flex-1">
       <input type="checkbox"
              {% if cp.is_done %}checked{% endif %}
              hx-post="{% url 'tasks:toggle_checkpoint' cp.pk %}"
@@ -11,9 +11,9 @@
              hx-swap="outerHTML"
              hx-disabled-elt="this"
              aria-label="Tandai checkpoint {{ cp.title }}"
-             class="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50">
+             class="mt-0.5 h-5 w-5 shrink-0 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50">
       <div class="min-w-0">
-        <p class="text-sm font-semibold leading-snug {% if cp.is_done %}line-through text-slate-600{% else %}text-slate-900{% endif %}">
+        <p class="text-sm font-semibold leading-snug break-words {% if cp.is_done %}line-through text-slate-600{% else %}text-slate-900{% endif %}">
           {{ cp.title }}
         </p>
         <div class="flex flex-wrap items-center gap-1.5 mt-1.5 text-xs">
@@ -33,10 +33,10 @@
       </div>
     </div>
 
-    <div class="flex items-center gap-1 shrink-0">
+    <div class="flex items-center gap-1 shrink-0 ml-auto">
       {% if not cp.is_done %}
         <a href="{% url 'tasks:focus_mode' cp.task_id %}?checkpoint={{ cp.pk }}"
-           class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition"
+           class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition"
            title="Mulai sesi fokus untuk checkpoint ini">
           <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
             <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/>
@@ -57,7 +57,7 @@
               hx-swap="outerHTML"
               hx-confirm="Hapus checkpoint ini?"
               hx-disabled-elt="this"
-              class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50 transition">
+              class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50 transition">
         Hapus
       </button>
     </div>
@@ -98,7 +98,7 @@
       </div>
     </div>
     {% if edit_error %}
-      <p data-editor-error class="text-xs text-rose-600 font-medium mt-1">{{ edit_error }}</p>
+      <p data-editor-error role="alert" class="text-xs text-rose-700 font-medium mt-1">{{ edit_error }}</p>
     {% endif %}
     <div class="flex items-center justify-between gap-2">
       <span class="text-[11px] text-slate-600">Tekan Esc untuk batal</span>

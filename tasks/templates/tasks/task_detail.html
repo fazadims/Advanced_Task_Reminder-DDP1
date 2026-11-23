@@ -57,6 +57,7 @@
 
         <div class="flex flex-wrap items-center gap-2 text-xs shrink-0">
           <div class="flex flex-wrap items-center gap-2">
+            {% if task.status != 'ARCHIVED' %}
             <a href="{% url 'tasks:focus_mode' task.pk %}"
                class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm transition">
               <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -64,6 +65,7 @@
               </svg>
               <span>Mulai Mode Fokus</span>
             </a>
+            {% endif %}
             {% if task.status != 'ARCHIVED' %}
               <form method="post" action="{% url 'tasks:task_quick_done' task.pk %}" class="inline">
                 {% csrf_token %}
@@ -112,6 +114,8 @@
           <div class="flex flex-wrap items-center gap-1.5">
             {% if task.status == 'DONE' %}
               <span class="inline-block px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 text-[11px] font-semibold">Selesai</span>
+            {% elif task.status == 'ARCHIVED' %}
+              <span class="inline-block px-2 py-0.5 rounded-full border text-[11px] font-semibold {{ task.status|status_badge_class }}">Diarsipkan</span>
             {% else %}
               <span class="inline-block px-2 py-0.5 rounded-full border text-[11px] font-semibold {{ dl.badge_class }}">{{ dl.text }}</span>
             {% endif %}

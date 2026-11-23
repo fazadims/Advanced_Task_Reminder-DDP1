@@ -101,8 +101,11 @@ def _attach_toast(
     return response
 
 
-def _sync_task_status_and_priority(task: Task, now=None) -> None:
-    """Syncs task status from checkpoints and persists recalculated priority fields in one UPDATE."""
+def _sync_task_status_and_priority(task: Task, now=None, extra_fields=()) -> None:
+    """Syncs task status from checkpoints and persists recalculated priority fields in one UPDATE.
+
+    ``extra_fields`` lets callers fold additional already-mutated Task fields into the same UPDATE.
+    """
     task.sync_status_from_checkpoints(save=False)
     recalculate_task_priority(task, now=now)
     task.save(
@@ -113,6 +116,7 @@ def _sync_task_status_and_priority(task: Task, now=None) -> None:
             "priority_level",
             "priority_reason",
             "updated_at",
+            *extra_fields,
         ]
     )
 
@@ -637,7 +641,7 @@ def _checkpoint_form_error_response(request, task: Task, error_msg: str):
     """Returns inline HTMX error targeting #checkpoint-form-error or flashes message on non-HTMX."""
     if _is_htmx(request):
         resp = HttpResponse(
-            format_html('<p class="text-xs text-rose-600 font-medium">{}</p>', error_msg),
+            format_html('<p role="alert" class="text-xs text-rose-700 font-medium">{}</p>', error_msg),
             status=400,
         )
         resp["HX-Retarget"] = "#checkpoint-form-error"
@@ -1028,7 +1032,7 @@ def start_focus_session(request):
     data = _parse_json_or_post(request)
     task_id = _parse_positive_int(data.get("task_id"))
     if task_id is None:
-        return JsonResponse({"ok": False, "error": "Invalid or missing task_id."}, status=400)
+        return JsonResponse({"ok": False, "error": "Tugas tidak valid atau tidak ditemukan."}, status=400)
     task = get_object_or_404(Task, pk=task_id, user=request.user)
 
     checkpoint = None
@@ -1036,7 +1040,7 @@ def start_focus_session(request):
     if raw_cp_id not in (None, ""):
         cp_id = _parse_positive_int(raw_cp_id)
         if cp_id is None:
-            return JsonResponse({"ok": False, "error": "Invalid checkpoint_id."}, status=400)
+            return JsonResponse({"ok": False, "error": "Checkpoint tidak valid."}, status=400)
         checkpoint = get_object_or_404(Checkpoint, pk=cp_id, task=task)
 
     mode = str(data.get("mode", "POMODORO_25_5")).upper()
@@ -1093,7 +1097,7 @@ def finish_focus_session(request, session_id: int):
             return JsonResponse(
                 {
                     "ok": False,
-                    "error": "Focus session is already finished.",
+                    "error": "Sesi fokus ini sudah selesai.",
                     "status": session.status,
                 },
                 status=409,
@@ -1123,9 +1127,10 @@ def finish_focus_session(request, session_id: int):
 
         task = session.task
         task_total = task.total_focus_minutes()
+        actual_minutes_dirty = False
         if new_status == "COMPLETED":
             task.actual_minutes = task_total
-            task.save(update_fields=["actual_minutes", "updated_at"])
+            actual_minutes_dirty = True
 
         checkpoint_marked = False
         if new_status == "COMPLETED" and mark_done and session.checkpoint_id:
@@ -1134,9 +1139,14 @@ def finish_focus_session(request, session_id: int):
                 cp.is_done = True
                 cp.completed_at = now
                 cp.save(update_fields=["is_done", "completed_at"])
-                _sync_task_status_and_priority(task, now=now)
+                # Fold actual_minutes into the same single Task UPDATE.
+                _sync_task_status_and_priority(task, now=now, extra_fields=("actual_minutes",))
+                actual_minutes_dirty = False
                 sync_reminders_for_task(task)
                 checkpoint_marked = True
+
+        if actual_minutes_dirty:
+            task.save(update_fields=["actual_minutes", "updated_at"])
 
     return JsonResponse(
         {
@@ -1159,7 +1169,7 @@ def _reminder_htmx_error_response(pk: int, error_msg: str) -> HttpResponse:
     """Returns inline HTMX error targeting #reminder-error-<pk> while keeping the card intact."""
     resp = HttpResponse(
         format_html(
-            '<div class="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800 font-semibold">{}</div>',
+            '<div role="alert" class="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800 font-semibold">{}</div>',
             error_msg,
         ),
         status=400,

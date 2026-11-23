@@ -178,7 +178,9 @@
     const status = xhr ? xhr.status : 0;
     if (xhr && xhr.responseURL && xhr.responseURL.includes('/login/') && !window.location.pathname.includes('/login/')) {
       evt.detail.shouldSwap = false;
-      window.location.href = xhr.responseURL;
+      // Return to the current page after re-login (never to a POST-only HTMX endpoint -> 405).
+      const next = encodeURIComponent(window.location.pathname + window.location.search);
+      window.location.href = `/login/?next=${next}`;
       return;
     }
     if (status === 400 || status === 422) {

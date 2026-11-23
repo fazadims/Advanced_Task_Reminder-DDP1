@@ -31,9 +31,9 @@ MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 SNOOZE_DURATION = timedelta(minutes=60)
 LOCAL_HOSTNAMES = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 ESCALATION_LABELS = {
-    1: "🟢 Reminder (H-3d)",
-    2: "🟡 Urgent (H-1d)",
-    3: "🔴 CRITICAL (H-3h)",
+    1: "🟢 Pengingat (H-3 hari)",
+    2: "🟡 Mendesak (H-1 hari)",
+    3: "🔴 KRITIS (H-3 jam)",
 }
 
 
@@ -182,7 +182,7 @@ def send_telegram_alert(reminder: Reminder, *, chat_id: int | None = None) -> bo
             return False
         target_chat_id = link.chat_id
 
-    badge = ESCALATION_LABELS.get(reminder.escalation_level, "🔔 Reminder")
+    badge = ESCALATION_LABELS.get(reminder.escalation_level, "🔔 Pengingat")
     has_checkpoint = bool(reminder.checkpoint_id and reminder.checkpoint)
     target_title = reminder.checkpoint.title if has_checkpoint else reminder.task.title
     target_deadline = (
@@ -200,7 +200,7 @@ def send_telegram_alert(reminder: Reminder, *, chat_id: int | None = None) -> bo
     ]
     if has_checkpoint:
         lines.append(f"Checkpoint: {target_title}")
-    lines.append(f"Deadline: {_format_local_dt(target_deadline)}")
+    lines.append(f"Tenggat: {_format_local_dt(target_deadline)}")
     if coaching_message:
         lines.append(f"\n{coaching_message}")
 
@@ -212,14 +212,14 @@ def send_telegram_alert(reminder: Reminder, *, chat_id: int | None = None) -> bo
 
     inline_keyboard: list[list[dict[str, str]]] = [
         [
-            {"text": "✅ Done", "callback_data": f"cb:done:{reminder.pk}"},
-            {"text": "⏰ Snooze 1h", "callback_data": f"cb:snooze60:{reminder.pk}"},
+            {"text": "✅ Selesai", "callback_data": f"cb:done:{reminder.pk}"},
+            {"text": "⏰ Tunda 1 jam", "callback_data": f"cb:snooze60:{reminder.pk}"},
         ]
     ]
     if _is_public_telegram_button_url(focus_url):
-        inline_keyboard.append([{"text": "🎯 Focus Mode", "url": focus_url}])
+        inline_keyboard.append([{"text": "🎯 Mode Fokus", "url": focus_url}])
     else:
-        lines.append(f"Focus Mode: {focus_url}")
+        lines.append(f"Mode Fokus: {focus_url}")
 
     payload = {
         "chat_id": target_chat_id,
