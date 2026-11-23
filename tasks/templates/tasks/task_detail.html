@@ -1,42 +1,143 @@
 {% extends "base.html" %}
+{% load task_ux %}
 {% block title %}{{ task.title }} — ATR{% endblock %}
 
 {% block content %}
-<div class="mb-4"><a href="{% url 'tasks:task_list' %}" class="text-sm text-slate-500 hover:text-indigo-600">&larr; Back to Tasks</a></div>
+{% phase_choices as checkpoint_phases %}
+{% with dl=task.deadline|relative_deadline %}
+
+<div class="mb-4 flex items-center justify-between gap-3">
+  <a href="{% url 'tasks:task_list' %}" class="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-indigo-600 transition">
+    <span aria-hidden="true">&larr;</span>
+    <span>Kembali ke Daftar Tugas</span>
+  </a>
+</div>
+
+{% if task.is_overdue %}
+  <div role="alert" class="mb-5 rounded-2xl border border-rose-200 bg-rose-50 px-5 py-4 flex flex-wrap items-center justify-between gap-3 shadow-sm">
+    <div class="flex items-start gap-3">
+      <span class="shrink-0 mt-0.5 w-8 h-8 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
+        <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+        </svg>
+      </span>
+      <div>
+        <p class="text-sm font-bold text-rose-900">Tugas ini sudah melewati tenggat waktu ({{ dl.text }}).</p>
+        <p class="text-xs text-rose-700 mt-0.5">Mulai sesi fokus singkat sekarang untuk segera menyelesaikannya atau perbarui tenggat jika ada perpanjangan.</p>
+      </div>
+    </div>
+    <a href="{% url 'tasks:focus_mode' task.pk %}" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-sm transition shrink-0">
+      Mulai Mode Fokus
+    </a>
+  </div>
+{% endif %}
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
   <div class="lg:col-span-2 space-y-6">
     <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
-        <div class="space-y-2">
-          <div class="flex flex-wrap gap-2 text-xs">
-            {% if task.course %}<span class="px-2.5 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold">{{ task.course.code }} — {{ task.course.name }}</span>{% endif %}
-            <span class="px-2.5 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">{{ task.get_category_display }}</span>
-            {% if task.is_group_project %}<span class="px-2.5 py-0.5 rounded bg-teal-50 text-teal-700 font-medium">Group Project</span>{% endif %}
+        <div class="space-y-2 min-w-0 flex-1">
+          <div class="flex flex-wrap items-center gap-1.5 text-xs">
+            {% if task.course %}
+              <span class="px-2.5 py-0.5 rounded-full border font-semibold {{ task.course|course_badge_class }}">
+                {{ task.course.code }} — {{ task.course.name }}
+              </span>
+            {% endif %}
+            <span class="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium">
+              {{ task.get_category_display }}
+            </span>
+            {% if task.is_group_project %}
+              <span class="px-2.5 py-0.5 rounded-full border border-teal-200 bg-teal-50 text-teal-700 font-semibold">
+                Proyek Kelompok
+              </span>
+            {% endif %}
           </div>
-          <h1 class="text-2xl font-bold text-slate-900">{{ task.title }}</h1>
+          <h1 class="text-2xl font-extrabold tracking-tight text-slate-900 break-words">{{ task.title }}</h1>
         </div>
-        <div class="flex flex-wrap gap-2 text-xs">
-          <a href="{% url 'tasks:focus_mode' task.pk %}" class="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">Launch Focus Mode</a>
-          <a href="{% url 'tasks:task_update' task.pk %}" class="px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium">Edit</a>
-          <form method="post" action="{% url 'tasks:task_archive' task.pk %}" class="inline">
-            {% csrf_token %}
-            <button type="submit" class="px-3 py-2 rounded-lg border border-slate-200 hover:bg-amber-50 text-amber-700 font-medium">{% if task.status == 'ARCHIVED' %}Unarchive{% else %}Archive{% endif %}</button>
-          </form>
-          <form method="post" action="{% url 'tasks:task_delete' task.pk %}" class="inline" onsubmit="return confirm('Delete this task permanently?');">
-            {% csrf_token %}
-            <button type="submit" class="px-3 py-2 rounded-lg border border-red-200 hover:bg-red-50 text-red-600 font-medium">Delete</button>
-          </form>
+
+        <div class="flex flex-wrap items-center gap-2 text-xs shrink-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <a href="{% url 'tasks:focus_mode' task.pk %}"
+               class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm transition">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/>
+              </svg>
+              <span>Mulai Mode Fokus</span>
+            </a>
+            {% if task.status != 'ARCHIVED' %}
+              <form method="post" action="{% url 'tasks:task_quick_done' task.pk %}" class="inline">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{% url 'tasks:task_detail' task.pk %}">
+                {% if task.status == 'DONE' %}
+                  <button type="submit" class="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-semibold transition">
+                    Buka Lagi
+                  </button>
+                {% else %}
+                  <button type="submit" class="px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold transition">
+                    Selesai
+                  </button>
+                {% endif %}
+              </form>
+            {% endif %}
+          </div>
+          <span class="hidden sm:inline-block w-px h-5 bg-slate-200 mx-0.5" aria-hidden="true"></span>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <a href="{% url 'tasks:task_update' task.pk %}"
+               class="px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 font-semibold transition">
+              Edit
+            </a>
+            <form method="post" action="{% url 'tasks:task_archive' task.pk %}" class="inline">
+              {% csrf_token %}
+              <button type="submit" class="px-3 py-2 rounded-xl border border-slate-200 hover:bg-amber-50 text-amber-700 font-medium transition">
+                {% if task.status == 'ARCHIVED' %}Pulihkan{% else %}Arsipkan{% endif %}
+              </button>
+            </form>
+            <form method="post" action="{% url 'tasks:task_delete' task.pk %}" class="inline" onsubmit="return confirm('Hapus tugas ini secara permanen?');">
+              {% csrf_token %}
+              <button type="submit" class="px-3 py-2 rounded-xl border border-rose-200 hover:bg-rose-50 text-rose-600 font-medium transition">
+                Hapus
+              </button>
+            </form>
+          </div>
         </div>
       </div>
 
-      {% if task.description %}<p class="mt-4 text-sm text-slate-600 whitespace-pre-line">{{ task.description }}</p>{% endif %}
+      {% if task.description %}
+        <div class="mt-4 p-4 rounded-xl bg-slate-50/80 border border-slate-100 text-sm text-slate-700 whitespace-pre-line leading-relaxed">{{ task.description }}</div>
+      {% endif %}
 
       <div class="mt-5 pt-4 border-t border-slate-100 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-        <div><p class="text-xs text-slate-500">Deadline</p><p class="font-semibold {% if task.is_overdue %}text-red-600{% else %}text-slate-900{% endif %}">{{ task.deadline|date:"d M Y, H:i" }}</p></div>
-        <div><p class="text-xs text-slate-500">Weight</p><p class="font-semibold text-slate-900">{{ task.weight_percentage }}%</p></div>
-        <div><p class="text-xs text-slate-500">Estimated</p><p class="font-semibold text-slate-900">{{ task.estimated_minutes }} min</p></div>
-        <div><p class="text-xs text-slate-500">Actual Focus</p><p class="font-semibold text-indigo-600">{{ total_focus_minutes|default:0 }} min</p></div>
+        <div>
+          <p class="text-xs font-medium text-slate-500 mb-1">Tenggat Waktu</p>
+          <div class="flex flex-wrap items-center gap-1.5">
+            {% if task.status == 'DONE' %}
+              <span class="inline-block px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 text-[11px] font-semibold">Selesai</span>
+            {% else %}
+              <span class="inline-block px-2 py-0.5 rounded-full border text-[11px] font-semibold {{ dl.badge_class }}">{{ dl.text }}</span>
+            {% endif %}
+          </div>
+          <p class="text-xs font-semibold text-slate-800 mt-1">{{ task.deadline|date:"d M Y, H:i" }}</p>
+        </div>
+        <div>
+          <p class="text-xs font-medium text-slate-500 mb-1">Bobot BRP</p>
+          {% if task.weight_percentage > 0 %}
+            <p class="font-bold text-slate-900">{{ task.weight_percentage|format_weight }}</p>
+            <p class="text-[11px] text-slate-500">dari nilai akhir</p>
+          {% else %}
+            <p class="font-semibold text-slate-600">{{ task.weight_percentage|format_weight }}</p>
+            <p class="text-[11px] text-slate-500">Bobot belum diisi</p>
+          {% endif %}
+        </div>
+        <div>
+          <p class="text-xs font-medium text-slate-500 mb-1">Estimasi Waktu</p>
+          <p class="font-bold text-slate-900">{{ task.estimated_minutes|human_duration }}</p>
+          <p class="text-[11px] text-slate-500">({{ task.estimated_minutes }} mnt)</p>
+        </div>
+        <div>
+          <p class="text-xs font-medium text-slate-500 mb-1">Fokus Tercatat</p>
+          <p class="font-bold text-indigo-600">{{ total_focus_minutes|default:0|human_duration }}</p>
+          <p class="text-[11px] text-slate-500">({{ total_focus_minutes|default:0 }} mnt)</p>
+        </div>
       </div>
     </section>
 
@@ -45,103 +146,208 @@
     <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 class="text-lg font-bold text-slate-900">Checkpoints</h2>
-          <p class="text-xs text-slate-500">Break down this assignment into actionable milestones.</p>
+          <h2 class="text-lg font-bold text-slate-900">Checkpoint</h2>
+          <p class="text-xs text-slate-500">Pecah tugas menjadi langkah-langkah kecil agar lebih ringan dicicil.</p>
         </div>
         <div class="flex flex-wrap items-center gap-2 text-xs font-semibold">
-          <button type="button" hx-post="{% url 'tasks:regenerate_checkpoints' task.pk %}" hx-target="#checkpoint-list" hx-swap="outerHTML" hx-confirm="Replace all incomplete checkpoints with auto-generated milestones? Completed checkpoints will be kept." class="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700">Auto-Generate Checkpoints</button>
-          <button type="button" hx-post="{% url 'tasks:preview_ai_checkpoints' task.pk %}" hx-target="#ai-checkpoint-preview-box" hx-swap="innerHTML" hx-disabled-elt="this" hx-indicator="#ai-suggest-spinner" class="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white">Suggest Sub-tasks (AI)</button>
-          <span id="ai-suggest-spinner" class="htmx-indicator text-xs text-purple-600 font-medium">Loading...</span>
+          <button type="button"
+                  hx-post="{% url 'tasks:regenerate_checkpoints' task.pk %}"
+                  hx-target="#checkpoint-list"
+                  hx-swap="outerHTML"
+                  hx-confirm="Ganti semua checkpoint yang belum selesai dengan milestone otomatis? Checkpoint yang sudah selesai tetap dipertahankan."
+                  hx-disabled-elt="this"
+                  class="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 disabled:opacity-50 text-slate-700 transition">
+            Buat Checkpoint Otomatis
+          </button>
+          <button type="button"
+                  id="ai-context-toggle-btn"
+                  aria-expanded="false"
+                  aria-controls="ai-context-panel"
+                  onclick="var p = document.getElementById('ai-context-panel'); if (!p) return; var hidden = p.classList.toggle('hidden'); this.setAttribute('aria-expanded', hidden ? 'false' : 'true'); if (!hidden) { var inp = document.getElementById('ai-extra-context'); if (inp) inp.focus(); }"
+                  class="px-2.5 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-indigo-700 transition"
+                  title="Tambahkan catatan konteks agar saran AI lebih spesifik">
+            + Konteks AI
+          </button>
+          <button type="button"
+                  id="btn-ai-suggest"
+                  hx-post="{% url 'tasks:preview_ai_checkpoints' task.pk %}"
+                  hx-target="#ai-checkpoint-preview-box"
+                  hx-swap="innerHTML"
+                  hx-include="#ai-extra-context"
+                  hx-disabled-elt="this"
+                  hx-indicator="#ai-suggest-spinner"
+                  class="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white shadow-sm transition">
+            Saran Sub-tugas (AI)
+          </button>
+          <span id="ai-suggest-spinner" class="htmx-indicator text-xs text-indigo-600 font-medium">Menyusun saran...</span>
         </div>
+      </div>
+
+      <div id="ai-context-panel"
+           data-dismiss-on-escape
+           data-return-focus="#ai-context-toggle-btn"
+           class="hidden rounded-xl border border-indigo-100 bg-indigo-50/50 p-3.5 space-y-1.5">
+        <div class="flex items-center justify-between gap-2">
+          <label for="ai-extra-context" class="block text-xs font-semibold text-indigo-900">
+            Konteks Tambahan untuk AI (Opsional)
+          </label>
+          <span class="text-[11px] text-indigo-700">Maks. 500 karakter</span>
+        </div>
+        <input id="ai-extra-context"
+               type="text"
+               name="extra_context"
+               maxlength="500"
+               onkeydown="if (event.key === 'Enter') { event.preventDefault(); var btn = document.getElementById('btn-ai-suggest'); if (btn && !btn.disabled) btn.click(); }"
+               placeholder="Contoh: Pakai Python & pytest, fokus pada struktur data tree dan dokumentasi laporan..."
+               class="w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs text-slate-900 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+        <p class="text-[11px] text-slate-600">Tekan <strong>Enter</strong> atau klik <strong>Saran Sub-tugas (AI)</strong> untuk menyertakan catatan ini.</p>
       </div>
 
       <div id="ai-checkpoint-preview-box"></div>
 
-      {% include "tasks/partials/checkpoint_list.html" with checkpoints=checkpoints task=task include_oob_progress=False include_oob_reminders=False %}
+      {% include "tasks/partials/checkpoint_list.html" with checkpoints=checkpoints task=task include_oob_progress=False include_oob_reminders=False include_oob_priority=False %}
 
-      <form hx-post="{% url 'tasks:add_checkpoint' task.pk %}" hx-target="#checkpoint-list" hx-swap="outerHTML" hx-on::after-request="if(event.detail.successful) { this.reset(); var e = document.getElementById('checkpoint-form-error'); if (e) e.innerHTML = ''; }" class="pt-4 border-t border-slate-100 space-y-3">
+      <form hx-post="{% url 'tasks:add_checkpoint' task.pk %}"
+            hx-target="#checkpoint-list"
+            hx-swap="outerHTML"
+            hx-disabled-elt="find button[type='submit']"
+            hx-on::after-request="if(event.detail.successful) { this.reset(); var e = document.getElementById('checkpoint-form-error'); if (e) e.innerHTML = ''; }"
+            class="pt-5 border-t border-slate-100 space-y-3">
         {% csrf_token %}
-        <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Add Checkpoint</h3>
-        <div id="checkpoint-form-error" class="text-xs text-red-600"></div>
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500">Tambah Checkpoint</h3>
+        </div>
+        <div id="checkpoint-form-error" class="text-xs text-rose-600"></div>
         <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
           <div class="sm:col-span-4">
-            <label for="add-cp-title" class="block text-[11px] font-medium text-slate-600 mb-1">Title</label>
-            <input id="add-cp-title" type="text" name="title" required aria-label="Checkpoint title" placeholder="e.g., Draft UML diagram or write unit tests" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+            <label for="add-cp-title" class="block text-[11px] font-semibold text-slate-600 mb-1">Judul Langkah</label>
+            <input id="add-cp-title"
+                   type="text"
+                   name="title"
+                   required
+                   aria-label="Judul checkpoint"
+                   placeholder="Contoh: Buat skema UML atau tulis unit test"
+                   class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
           </div>
           <div class="sm:col-span-3">
-            <label for="add-cp-phase" class="block text-[11px] font-medium text-slate-600 mb-1">Phase</label>
-            <select id="add-cp-phase" name="phase" aria-label="Checkpoint phase" class="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm bg-white">
-              <option value="RESEARCH">Riset &amp; Pahami Soal</option>
-              <option value="DRAFT">Pengerjaan Inti / Draft</option>
-              <option value="REVIEW">Review &amp; Testing</option>
-              <option value="SUBMIT">Finalisasi &amp; Submit</option>
-              <option value="CUSTOM" selected>Kustom</option>
+            <label for="add-cp-phase" class="block text-[11px] font-semibold text-slate-600 mb-1">Tahap</label>
+            <select id="add-cp-phase"
+                    name="phase"
+                    aria-label="Tahap checkpoint"
+                    class="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm bg-white text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+              {% for val, label in checkpoint_phases %}
+                <option value="{{ val }}" {% if val == 'CUSTOM' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
             </select>
           </div>
           <div class="sm:col-span-3">
-            <label for="add-cp-deadline" class="block text-[11px] font-medium text-slate-600 mb-1">Target Deadline</label>
-            <input id="add-cp-deadline" type="datetime-local" name="target_deadline" aria-label="Checkpoint target deadline" class="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm">
+            <label for="add-cp-deadline" class="block text-[11px] font-semibold text-slate-600 mb-1">Target Tenggat</label>
+            <input id="add-cp-deadline"
+                   type="datetime-local"
+                   name="target_deadline"
+                   max="{{ task.deadline|date:'Y-m-d\TH:i' }}"
+                   aria-label="Target tenggat checkpoint"
+                   class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
           </div>
           <div class="sm:col-span-2">
-            <label for="add-cp-minutes" class="block text-[11px] font-medium text-slate-600 mb-1">Est. (min)</label>
-            <input id="add-cp-minutes" type="number" name="estimated_minutes" value="30" min="5" max="600" aria-label="Estimated minutes" placeholder="Min" class="w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm">
+            <label for="add-cp-minutes" class="block text-[11px] font-semibold text-slate-600 mb-1">Estimasi (mnt)</label>
+            <input id="add-cp-minutes"
+                   type="number"
+                   name="estimated_minutes"
+                   value="30"
+                   min="1"
+                   max="600"
+                   aria-label="Estimasi menit"
+                   placeholder="30"
+                   class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
           </div>
         </div>
-        <div class="flex justify-end"><button type="submit" class="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold">+ Add Checkpoint</button></div>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p class="text-[11px] text-slate-500">Opsional — kosongkan target tenggat untuk otomatis 1 jam sebelum deadline tugas.</p>
+          <button type="submit" class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-semibold transition">
+            + Tambah Checkpoint
+          </button>
+        </div>
       </form>
     </section>
   </div>
 
   <div class="space-y-6">
-    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
-      <div class="flex items-center justify-between">
-        <h2 class="text-sm font-bold text-slate-900 uppercase">Priority &amp; Effort</h2>
-        <span class="px-2.5 py-0.5 rounded-full text-xs font-bold {% if task.priority_level == 'CRITICAL' %}bg-red-100 text-red-700{% elif task.priority_level == 'HIGH' %}bg-amber-100 text-amber-700{% elif task.priority_level == 'MEDIUM' %}bg-indigo-100 text-indigo-700{% else %}bg-slate-100 text-slate-600{% endif %}">{{ task.get_priority_level_display }}</span>
+    <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+      {% include "tasks/partials/priority_card.html" with task=task oob=False %}
+
+      {% with focus_mins=total_focus_minutes|default:0 %}
+      <div class="p-3.5 rounded-xl border space-y-2 {% if task.estimated_minutes > 0 and focus_mins > task.estimated_minutes %}bg-amber-50/80 border-amber-200{% else %}bg-slate-50/80 border-slate-100{% endif %}">
+        <div class="flex items-center justify-between gap-2 text-xs">
+          <span class="font-semibold {% if task.estimated_minutes > 0 and focus_mins > task.estimated_minutes %}text-amber-900{% else %}text-slate-700{% endif %}">Fokus vs Estimasi</span>
+          <span class="font-bold tabular-nums {% if task.estimated_minutes > 0 and focus_mins > task.estimated_minutes %}text-amber-800{% else %}text-slate-900{% endif %}">
+            {{ focus_mins|human_duration }} / {{ task.estimated_minutes|human_duration }}
+          </span>
+        </div>
+        <div class="w-full h-2 {% if task.estimated_minutes > 0 and focus_mins > task.estimated_minutes %}bg-amber-200/70{% else %}bg-slate-200/80{% endif %} rounded-full overflow-hidden">
+          {% if task.estimated_minutes > 0 %}
+            <div class="h-full rounded-full transition-all duration-300 {% if focus_mins > task.estimated_minutes %}bg-amber-500{% else %}bg-indigo-600{% endif %}"
+                 style="width: {% widthratio focus_mins task.estimated_minutes 100 %}%; max-width: 100%;"></div>
+          {% else %}
+            <div class="h-full rounded-full bg-slate-300" style="width: 0%"></div>
+          {% endif %}
+        </div>
+        {% if task.estimated_minutes > 0 and focus_mins > task.estimated_minutes %}
+          <p class="text-[11px] font-medium text-amber-800">Durasi fokus melebihi estimasi awal — pertimbangkan menaikkan estimasi untuk tugas serupa.</p>
+        {% endif %}
       </div>
-      <div class="flex items-baseline gap-2">
-        <span class="text-3xl font-extrabold text-slate-900">{{ task.priority_score|floatformat:1 }}</span>
-        <span class="text-xs text-slate-500">priority score</span>
-      </div>
-      <p class="text-xs text-slate-600 bg-slate-50 rounded-lg p-3 border border-slate-100">{{ task.priority_reason|default:"Priority score updates automatically from deadline urgency, weight, and difficulty." }}</p>
-      <div class="grid grid-cols-2 gap-2 text-xs">
-        <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-100"><span class="text-slate-500 block">Difficulty</span><span class="font-bold">{{ task.difficulty }} / 5</span></div>
-        <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-100"><span class="text-slate-500 block">Focus / Est.</span><span class="font-bold">{{ total_focus_minutes|default:0 }} / {{ task.estimated_minutes }}m</span></div>
-      </div>
+      {% endwith %}
     </section>
 
     <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-bold text-slate-900 uppercase">Recent Focus Sessions</h2>
-        <a href="{% url 'tasks:focus_mode' task.pk %}" class="text-xs text-indigo-600 hover:underline font-medium">Start &rarr;</a>
+        <h2 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Sesi Fokus Terbaru</h2>
+        <a href="{% url 'tasks:focus_mode' task.pk %}" class="text-xs text-indigo-600 hover:underline font-semibold">Mulai &rarr;</a>
       </div>
       {% if focus_sessions %}
         <div class="overflow-x-auto">
           <table class="w-full text-xs text-left">
-            <thead class="text-slate-500 border-b border-slate-100"><tr><th class="py-1.5">Mode</th><th class="py-1.5">Min</th><th class="py-1.5">Status</th><th class="py-1.5 text-right">Date</th></tr></thead>
+            <thead class="text-slate-500 border-b border-slate-100">
+              <tr>
+                <th class="py-1.5 font-semibold">Mode</th>
+                <th class="py-1.5 font-semibold">Durasi</th>
+                <th class="py-1.5 font-semibold">Status</th>
+                <th class="py-1.5 font-semibold text-right">Waktu</th>
+              </tr>
+            </thead>
             <tbody class="divide-y divide-slate-100">
               {% for s in focus_sessions %}
                 <tr>
-                  <td class="py-2 font-medium">{{ s.get_mode_display }}</td>
-                  <td class="py-2 text-slate-600">{{ s.actual_minutes }}/{{ s.planned_minutes }}m</td>
-                  <td class="py-2"><span class="px-1.5 py-0.5 rounded text-[11px] font-medium {% if s.status == 'COMPLETED' %}bg-emerald-100 text-emerald-700{% else %}bg-slate-100 text-slate-600{% endif %}">{{ s.get_status_display }}</span></td>
-                  <td class="py-2 text-right text-slate-500">{{ s.started_at|date:"d M, H:i" }}</td>
+                  <td class="py-2 font-medium text-slate-800">{{ s.mode|focus_mode_label }}</td>
+                  <td class="py-2 text-slate-600 tabular-nums">{{ s.actual_minutes }}/{{ s.planned_minutes }} mnt</td>
+                  <td class="py-2">
+                    <span class="px-1.5 py-0.5 rounded-full text-[11px] font-medium {% if s.status == 'COMPLETED' %}bg-emerald-50 text-emerald-700 border border-emerald-200{% else %}bg-slate-100 text-slate-600{% endif %}">
+                      {{ s.get_status_display }}
+                    </span>
+                  </td>
+                  <td class="py-2 text-right text-slate-500 whitespace-nowrap">{{ s.started_at|date:"d M, H:i" }}</td>
                 </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
       {% else %}
-        <p class="text-xs text-slate-500">No focus sessions logged yet.</p>
+        <div class="py-5 px-3 text-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70">
+          <p class="text-xs font-medium text-slate-700">Belum ada sesi fokus tercatat.</p>
+          <p class="text-[11px] text-slate-600 mt-0.5">Gunakan Mode Fokus agar waktu pengerjaan tercatat otomatis.</p>
+        </div>
       {% endif %}
     </section>
 
     <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-bold text-slate-900 uppercase">Upcoming Reminders</h2>
-        <a href="{% url 'alerts:inbox' %}" class="text-xs text-indigo-600 hover:underline font-medium">Inbox &rarr;</a>
+        <h2 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Pengingat Mendatang</h2>
+        <a href="{% url 'alerts:inbox' %}" class="text-xs text-indigo-600 hover:underline font-semibold">Kotak Masuk &rarr;</a>
       </div>
       {% include "tasks/partials/upcoming_reminders.html" with task=task reminders=reminders oob=False %}
     </section>
   </div>
 </div>
+
+{% endwith %}
 {% endblock %}

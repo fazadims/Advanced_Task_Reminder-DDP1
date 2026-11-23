@@ -1,16 +1,20 @@
-{% with pct=task.progress_percent %}
-<div id="task-progress-bar" {% if oob %}hx-swap-oob="true"{% endif %} class="bg-white rounded-xl border border-slate-200 p-4">
-  <div class="flex items-center justify-between gap-2 mb-2">
-    <span class="text-sm font-semibold text-slate-700">Task Progress</span>
-    <div class="flex items-center gap-2">
-      <span class="px-2.5 py-0.5 rounded-full text-xs font-medium {% if task.status == 'DONE' %}bg-emerald-100 text-emerald-700{% elif task.status == 'IN_PROGRESS' %}bg-indigo-100 text-indigo-700{% elif task.status == 'ARCHIVED' %}bg-slate-200 text-slate-600{% else %}bg-amber-100 text-amber-700{% endif %}">
+{% load task_ux %}
+{% with cp_stat=task|checkpoint_progress %}
+<div id="task-progress-bar" {% if oob %}hx-swap-oob="true"{% endif %} class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+  <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-sm font-bold text-slate-900">Progres Tugas</span>
+      <span class="px-2.5 py-0.5 rounded-full border text-xs font-semibold {{ task.status|status_badge_class }}">
         {{ task.get_status_display }}
       </span>
-      <span class="text-sm font-bold text-indigo-600">{{ pct }}%</span>
+      {% if cp_stat.total > 0 %}
+        <span class="text-xs font-medium text-slate-500 tabular-nums">{{ cp_stat.done }}/{{ cp_stat.total }} langkah</span>
+      {% endif %}
     </div>
+    <span class="text-sm font-extrabold {% if cp_stat.percent == 100 %}text-emerald-600{% else %}text-indigo-600{% endif %} tabular-nums">{{ cp_stat.percent }}%</span>
   </div>
-  <div class="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-    <div class="h-full bg-indigo-600 rounded-full transition-all duration-300" style="width: {{ pct }}%"></div>
+  <div class="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden" role="progressbar" aria-valuenow="{{ cp_stat.percent }}" aria-valuemin="0" aria-valuemax="100" aria-label="Progres penyelesaian tugas">
+    <div class="h-full rounded-full transition-all duration-300 {% if cp_stat.percent == 100 %}bg-emerald-500{% else %}bg-indigo-600{% endif %}" style="width: {{ cp_stat.percent }}%"></div>
   </div>
 </div>
 {% endwith %}

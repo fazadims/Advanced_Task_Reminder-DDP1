@@ -1,57 +1,700 @@
 {% extends "base.html" %}
-{% block title %}{% if is_edit %}Edit Task{% else %}New Task{% endif %} — ATR{% endblock %}
+{% load task_ux %}
+{% block title %}{% if is_edit %}Edit Tugas{% else %}Buat Tugas Baru{% endif %} — ATR{% endblock %}
 
 {% block content %}
-<div class="max-w-2xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
-  <div class="mb-6">
-    <h1 class="text-2xl font-bold text-slate-900">
-      {% if is_edit %}Edit Task{% else %}Create New Task{% endif %}
-    </h1>
-    <p class="text-sm text-slate-500 mt-1">Fill in assignment details, deadline, weight, and effort estimate.</p>
+{% difficulty_levels as difficulty_options %}
+
+<div class="max-w-3xl mx-auto">
+  <div class="mb-4">
+    <a href="{% if is_edit and task %}{% url 'tasks:task_detail' task.pk %}{% else %}{% url 'tasks:task_list' %}{% endif %}"
+       class="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-indigo-600 transition">
+      <span aria-hidden="true">&larr;</span>
+      <span>{% if is_edit %}Kembali ke Detail Tugas{% else %}Kembali ke Daftar Tugas{% endif %}</span>
+    </a>
   </div>
 
-  {% if form.non_field_errors %}
-    <div class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
-      {{ form.non_field_errors }}
+  <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+    <div class="mb-6 pb-5 border-b border-slate-100">
+      <h1 class="text-2xl font-extrabold tracking-tight text-slate-900">
+        {% if is_edit %}Edit Tugas{% else %}Buat Tugas Baru{% endif %}
+      </h1>
+      <p class="text-sm text-slate-500 mt-1">
+        Isi detail tugas, tenggat waktu, estimasi durasi, dan bobot BRP agar prioritas dan checkpoint dihitung otomatis.
+      </p>
     </div>
-  {% endif %}
 
-  <form method="post" class="space-y-4">
-    {% csrf_token %}
-    {% for field in form %}
-      <div>
-        {% if field.field.widget.input_type == "checkbox" %}
-          <label for="{{ field.id_for_label }}" class="inline-flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
-            {{ field }}
-            <span>{{ field.label }}</span>
+    {% if form.non_field_errors %}
+      <div role="alert" class="mb-5 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-700">
+        {{ form.non_field_errors }}
+      </div>
+    {% endif %}
+
+    <form method="post" class="space-y-8" id="task-main-form">
+      {% csrf_token %}
+
+      <!-- Bagian 1: Informasi Utama -->
+      <section class="space-y-4">
+        <div class="flex items-center gap-2.5">
+          <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">1</span>
+          <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Informasi Utama</h2>
+        </div>
+
+        <div>
+          <label for="{{ form.title.id_for_label }}" class="block text-sm font-semibold text-slate-700 mb-1">
+            {{ form.title.label }} <span class="text-rose-500">*</span>
+          </label>
+          {{ form.title }}
+          {% for error in form.title.errors %}
+            <p class="text-xs text-rose-600 mt-1">{{ error }}</p>
+          {% endfor %}
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+          <div>
+            <div class="flex items-center justify-between gap-2 mb-1">
+              <label for="{{ form.course.id_for_label }}" class="block text-sm font-semibold text-slate-700">
+                {{ form.course.label }}
+              </label>
+              <button type="button"
+                      id="quick-course-toggle-btn"
+                      aria-expanded="false"
+                      aria-controls="quick-course-panel"
+                      class="text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:underline transition">
+                + Tambah Mata Kuliah
+              </button>
+            </div>
+            {{ form.course }}
+            {% if form.course.help_text %}
+              <p class="text-xs text-slate-500 mt-1">{{ form.course.help_text }}</p>
+            {% endif %}
+            {% for error in form.course.errors %}
+              <p class="text-xs text-rose-600 mt-1">{{ error }}</p>
+            {% endfor %}
+
+            <div id="quick-course-panel"
+                 data-quick-course-url="{% url 'tasks:quick_add_course' %}"
+                 data-dismiss-on-escape
+                 data-return-focus="#quick-course-toggle-btn"
+                 class="hidden mt-3 p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/60 space-y-2.5">
+              <p class="text-xs font-bold text-indigo-900">Tambah Mata Kuliah Cepat</p>
+              <div class="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                <div class="sm:col-span-2">
+                  <label for="quick-course-code" class="block text-[11px] font-semibold text-slate-600 mb-0.5">Kode Matkul</label>
+                  <input id="quick-course-code"
+                         type="text"
+                         maxlength="20"
+                         placeholder="CSGE601020"
+                         class="w-full rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 uppercase focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                </div>
+                <div class="sm:col-span-3">
+                  <label for="quick-course-name" class="block text-[11px] font-semibold text-slate-600 mb-0.5">Nama Mata Kuliah</label>
+                  <input id="quick-course-name"
+                         type="text"
+                         maxlength="150"
+                         placeholder="Dasar-Dasar Pemrograman 1"
+                         class="w-full rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                </div>
+              </div>
+              <p id="quick-course-error" class="hidden text-xs text-rose-600 font-medium"></p>
+              <div class="flex items-center justify-end gap-2">
+                <button type="button"
+                        id="quick-course-cancel-btn"
+                        class="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 transition">
+                  Batal
+                </button>
+                <button type="button"
+                        id="quick-course-save-btn"
+                        class="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold transition">
+                  Simpan Matkul
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label for="{{ form.category.id_for_label }}" class="block text-sm font-semibold text-slate-700 mb-1">
+              {{ form.category.label }}
+            </label>
+            {{ form.category }}
+            {% for error in form.category.errors %}
+              <p class="text-xs text-rose-600 mt-1">{{ error }}</p>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+            <label for="{{ form.deadline.id_for_label }}" class="block text-sm font-semibold text-slate-700">
+              {{ form.deadline.label }} <span class="text-rose-500">*</span>
+            </label>
+            <span id="deadline-preview-hint" class="text-xs font-semibold text-indigo-600"></span>
+          </div>
+          {{ form.deadline }}
+          <div class="flex flex-wrap items-center gap-1.5 mt-2">
+            <span class="text-[11px] font-medium text-slate-500 mr-0.5">Cepat:</span>
+            <button type="button" data-deadline-preset="today" aria-pressed="false"
+                    class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">
+              Hari Ini 23:59
+            </button>
+            <button type="button" data-deadline-preset="tomorrow" aria-pressed="false"
+                    class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">
+              Besok 23:59
+            </button>
+            <button type="button" data-deadline-preset="3days" aria-pressed="false"
+                    class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">
+              +3 Hari
+            </button>
+            <button type="button" data-deadline-preset="7days" aria-pressed="false"
+                    class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">
+              +1 Minggu
+            </button>
+          </div>
+          {% if form.deadline.help_text %}
+            <p class="text-xs text-slate-500 mt-1.5">{{ form.deadline.help_text }}</p>
+          {% endif %}
+          {% for error in form.deadline.errors %}
+            <p class="text-xs text-rose-600 mt-1">{{ error }}</p>
+          {% endfor %}
+        </div>
+      </section>
+
+      <!-- Bagian 2: Estimasi, Tingkat Kesulitan & Bobot BRP -->
+      <section class="pt-6 border-t border-slate-100 space-y-5">
+        <div class="flex items-center gap-2.5">
+          <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">2</span>
+          <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Estimasi, Tingkat Kesulitan &amp; Bobot BRP</h2>
+        </div>
+
+        <div>
+          <label for="{{ form.difficulty.id_for_label }}" id="difficulty-field-label" class="block text-sm font-semibold text-slate-700 mb-2">
+            {{ form.difficulty.label }}
+          </label>
+          <div class="sr-only" aria-hidden="true">
+            {{ form.difficulty }}
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2" role="group" aria-label="Pilih tingkat kesulitan 1 sampai 5">
+            {% for opt in difficulty_options %}
+              <button type="button"
+                      data-difficulty-btn="{{ opt.level }}"
+                      data-difficulty-label="{{ opt.label }}"
+                      data-difficulty-desc="{{ opt.description }}"
+                      data-difficulty-bar="{{ opt.bar_color }}"
+                      aria-pressed="false"
+                      class="difficulty-pill flex flex-col items-start gap-1 p-2.5 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 text-left transition">
+                <div class="flex items-center gap-1.5 w-full">
+                  <span class="w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center bg-slate-100 text-slate-700" data-diff-badge>{{ opt.level }}</span>
+                  <span class="w-2 h-2 rounded-full {{ opt.bar_color }} ml-auto"></span>
+                </div>
+                <span class="text-xs font-semibold text-slate-800 leading-tight">{{ opt.short_label }}</span>
+              </button>
+            {% endfor %}
+          </div>
+          <div id="difficulty-desc-box" aria-live="polite" class="mt-2.5 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600">
+            <strong id="difficulty-desc-label" class="text-slate-800">Sedang</strong> — <span id="difficulty-desc-text">Butuh 1–2 sesi fokus dan pemahaman konsep yang rapi.</span>
+          </div>
+          {% for error in form.difficulty.errors %}
+            <p class="text-xs text-rose-600 mt-1">{{ error }}</p>
+          {% endfor %}
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div>
+            <div class="flex items-center justify-between gap-2 mb-1">
+              <label for="{{ form.estimated_minutes.id_for_label }}" class="block text-sm font-semibold text-slate-700">
+                {{ form.estimated_minutes.label }}
+              </label>
+              <span id="duration-preview-hint" class="text-xs font-semibold text-indigo-600 tabular-nums"></span>
+            </div>
+            {{ form.estimated_minutes }}
+            <div class="flex flex-wrap gap-1.5 mt-2">
+              <button type="button" data-duration-chip="30" aria-pressed="false" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">30 mnt</button>
+              <button type="button" data-duration-chip="60" aria-pressed="false" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">1 jam</button>
+              <button type="button" data-duration-chip="120" aria-pressed="false" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">2 jam</button>
+              <button type="button" data-duration-chip="240" aria-pressed="false" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">4 jam</button>
+              <button type="button" data-duration-chip="360" aria-pressed="false" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">6 jam</button>
+            </div>
+            {% if form.estimated_minutes.help_text %}
+              <p class="text-xs text-slate-500 mt-1.5">{{ form.estimated_minutes.help_text }}</p>
+            {% endif %}
+            {% for error in form.estimated_minutes.errors %}
+              <p class="text-xs text-rose-600 mt-1">{{ error }}</p>
+            {% endfor %}
+          </div>
+
+          <div>
+            <label for="{{ form.weight_percentage.id_for_label }}" class="block text-sm font-semibold text-slate-700 mb-1">
+              {{ form.weight_percentage.label }}
+            </label>
+            {{ form.weight_percentage }}
+            <div class="flex flex-wrap gap-1.5 mt-2">
+              <button type="button" data-weight-chip="0" aria-pressed="false" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">0% Belum tahu</button>
+              <button type="button" data-weight-chip="5" aria-pressed="false" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">5%</button>
+              <button type="button" data-weight-chip="10" aria-pressed="false" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">10%</button>
+              <button type="button" data-weight-chip="15" aria-pressed="false" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">15%</button>
+              <button type="button" data-weight-chip="20" aria-pressed="false" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">20%</button>
+              <button type="button" data-weight-chip="30" aria-pressed="false" class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 text-xs font-medium text-slate-700 transition">30%</button>
+            </div>
+            {% if form.weight_percentage.help_text %}
+              <p class="text-xs text-slate-500 mt-1.5">{{ form.weight_percentage.help_text }}</p>
+            {% endif %}
+            {% for error in form.weight_percentage.errors %}
+              <p class="text-xs text-rose-600 mt-1">{{ error }}</p>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+
+      <!-- Bagian 3: Detail Tambahan -->
+      <section class="pt-6 border-t border-slate-100 space-y-4">
+        <div class="flex items-center gap-2.5">
+          <span class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">3</span>
+          <h2 class="text-sm font-bold text-slate-900 uppercase tracking-wider">Detail Tambahan</h2>
+        </div>
+
+        <div>
+          <label for="{{ form.description.id_for_label }}" class="block text-sm font-semibold text-slate-700 mb-1">
+            {{ form.description.label }}
+          </label>
+          {{ form.description }}
+          {% for error in form.description.errors %}
+            <p class="text-xs text-rose-600 mt-1">{{ error }}</p>
+          {% endfor %}
+        </div>
+
+        <label for="{{ form.is_group_project.id_for_label }}"
+               class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-50 cursor-pointer transition">
+          <span class="mt-0.5">{{ form.is_group_project }}</span>
+          <span class="text-sm">
+            <span class="block font-semibold text-slate-800">{{ form.is_group_project.label }}</span>
+            <span class="block text-xs text-slate-500 mt-0.5">Menandai tugas dengan lencana Proyek Kelompok agar mudah dikoordinasikan.</span>
+          </span>
+        </label>
+
+        {% if not is_edit %}
+          <label for="{{ form.auto_generate_checkpoints.id_for_label }}"
+                 class="flex items-start gap-3 p-4 rounded-xl border border-indigo-200 bg-indigo-50/60 hover:bg-indigo-50 cursor-pointer transition">
+            <span class="mt-0.5">{{ form.auto_generate_checkpoints }}</span>
+            <span class="text-sm">
+              <span class="block font-semibold text-indigo-950">{{ form.auto_generate_checkpoints.label }}</span>
+              <span class="block text-xs text-indigo-700/90 mt-0.5">
+                Otomatis membuat 3–4 milestone bertahap sebelum deadline (riset, pengerjaan inti, review, dan finalisasi) agar tugas langsung siap dicicil.
+              </span>
+            </span>
           </label>
         {% else %}
-          <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-slate-700 mb-1">
-            {{ field.label }}{% if field.field.required %} <span class="text-red-500">*</span>{% endif %}
-          </label>
-          <div class="[&_input]:w-full [&_input]:rounded-lg [&_input]:border [&_input]:border-slate-300 [&_input]:px-3 [&_input]:py-2 [&_input]:text-sm [&_select]:w-full [&_select]:rounded-lg [&_select]:border [&_select]:border-slate-300 [&_select]:px-3 [&_select]:py-2 [&_select]:text-sm [&_select]:bg-white [&_textarea]:w-full [&_textarea]:rounded-lg [&_textarea]:border [&_textarea]:border-slate-300 [&_textarea]:px-3 [&_textarea]:py-2 [&_textarea]:text-sm">
-            {{ field }}
+          <div>
+            <label for="{{ form.status.id_for_label }}" class="block text-sm font-semibold text-slate-700 mb-1">
+              {{ form.status.label }}
+            </label>
+            {{ form.status }}
+            {% for error in form.status.errors %}
+              <p class="text-xs text-rose-600 mt-1">{{ error }}</p>
+            {% endfor %}
           </div>
         {% endif %}
-        {% if field.help_text %}
-          <p class="text-xs text-slate-500 mt-1">{{ field.help_text }}</p>
-        {% endif %}
-        {% for error in field.errors %}
-          <p class="text-xs text-red-600 mt-1">{{ error }}</p>
-        {% endfor %}
-      </div>
-    {% endfor %}
+      </section>
 
-    <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-      <a href="{% if is_edit and task %}{% url 'tasks:task_detail' task.pk %}{% else %}{% url 'tasks:task_list' %}{% endif %}"
-         class="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 text-sm font-medium transition">
-        Cancel
-      </a>
-      <button type="submit"
-              class="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition">
-        {% if is_edit %}Save Changes{% else %}Create Task{% endif %}
-      </button>
-    </div>
-  </form>
+      <div class="flex items-center justify-end gap-3 pt-5 border-t border-slate-100">
+        <a href="{% if is_edit and task %}{% url 'tasks:task_detail' task.pk %}{% else %}{% url 'tasks:task_list' %}{% endif %}"
+           class="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 text-sm font-semibold transition">
+          Batal
+        </a>
+        <button type="submit"
+                class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-sm transition">
+          {% if is_edit %}Simpan Perubahan{% else %}Buat Tugas{% endif %}
+        </button>
+      </div>
+    </form>
+  </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  (function () {
+    'use strict';
+
+    // 1. Difficulty 5-level interactive selector
+    var diffInput = document.getElementById('id_difficulty');
+    var diffLabel = document.getElementById('difficulty-field-label') || document.querySelector('label[for="id_difficulty"]');
+    var diffButtons = Array.prototype.slice.call(document.querySelectorAll('[data-difficulty-btn]'));
+    var diffDescLabel = document.getElementById('difficulty-desc-label');
+    var diffDescText = document.getElementById('difficulty-desc-text');
+
+    if (diffInput) {
+      diffInput.setAttribute('tabindex', '-1');
+      diffInput.setAttribute('aria-hidden', 'true');
+    }
+
+    if (diffLabel) {
+      diffLabel.addEventListener('click', function (evt) {
+        evt.preventDefault();
+        var activePill = document.querySelector('.difficulty-pill[aria-pressed="true"]') || diffButtons[0];
+        if (activePill) activePill.focus();
+      });
+    }
+
+    function setDifficulty(level) {
+      var clamped = Math.max(1, Math.min(5, parseInt(level, 10) || 3));
+      if (diffInput) diffInput.value = String(clamped);
+      diffButtons.forEach(function (btn) {
+        var btnLevel = parseInt(btn.getAttribute('data-difficulty-btn'), 10);
+        var active = btnLevel === clamped;
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        btn.classList.toggle('border-indigo-600', active);
+        btn.classList.toggle('bg-indigo-50/70', active);
+        btn.classList.toggle('ring-2', active);
+        btn.classList.toggle('ring-indigo-500/20', active);
+        btn.classList.toggle('border-slate-200', !active);
+        btn.classList.toggle('bg-white', !active);
+
+        var badge = btn.querySelector('[data-diff-badge]');
+        if (badge) {
+          badge.classList.toggle('bg-indigo-600', active);
+          badge.classList.toggle('text-white', active);
+          badge.classList.toggle('bg-slate-100', !active);
+          badge.classList.toggle('text-slate-700', !active);
+        }
+
+        if (active) {
+          if (diffDescLabel) diffDescLabel.textContent = btn.getAttribute('data-difficulty-label') || '';
+          if (diffDescText) diffDescText.textContent = btn.getAttribute('data-difficulty-desc') || '';
+        }
+      });
+    }
+
+    diffButtons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        setDifficulty(btn.getAttribute('data-difficulty-btn'));
+      });
+    });
+    if (diffInput) {
+      setDifficulty(diffInput.value || 3);
+    }
+
+    function setChipActiveState(chip, active) {
+      chip.setAttribute('aria-pressed', active ? 'true' : 'false');
+      chip.classList.toggle('bg-indigo-600', active);
+      chip.classList.toggle('border-indigo-600', active);
+      chip.classList.toggle('text-white', active);
+      chip.classList.toggle('hover:bg-indigo-700', active);
+      chip.classList.toggle('bg-slate-50', !active);
+      chip.classList.toggle('border-slate-200', !active);
+      chip.classList.toggle('text-slate-700', !active);
+      chip.classList.toggle('hover:bg-indigo-50', !active);
+      chip.classList.toggle('hover:border-indigo-200', !active);
+      chip.classList.toggle('hover:text-indigo-700', !active);
+    }
+
+    // 2. Duration chips + live human duration readout
+    var estInput = document.getElementById('id_estimated_minutes');
+    var durationHint = document.getElementById('duration-preview-hint');
+    var durationChips = Array.prototype.slice.call(document.querySelectorAll('[data-duration-chip]'));
+
+    function formatHumanDuration(minutes) {
+      var total = parseInt(minutes, 10);
+      if (isNaN(total) || total < 0) return '';
+      if (total === 0) return '= 0 mnt';
+      var h = Math.floor(total / 60);
+      var m = total % 60;
+      if (h > 0 && m > 0) return '= ' + h + ' jam ' + m + ' mnt';
+      if (h > 0) return '= ' + h + ' jam';
+      return '= ' + m + ' mnt';
+    }
+
+    function syncDurationUI() {
+      if (!estInput) return;
+      var val = parseInt(estInput.value, 10);
+      if (durationHint) durationHint.textContent = formatHumanDuration(val);
+      durationChips.forEach(function (chip) {
+        var chipVal = parseInt(chip.getAttribute('data-duration-chip'), 10);
+        setChipActiveState(chip, val === chipVal);
+      });
+    }
+
+    durationChips.forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        if (!estInput) return;
+        estInput.value = chip.getAttribute('data-duration-chip');
+        syncDurationUI();
+      });
+    });
+    if (estInput) {
+      estInput.addEventListener('input', syncDurationUI);
+      syncDurationUI();
+    }
+
+    // 3. BRP Weight chips
+    var weightInput = document.getElementById('id_weight_percentage');
+    var weightChips = Array.prototype.slice.call(document.querySelectorAll('[data-weight-chip]'));
+
+    function syncWeightUI() {
+      if (!weightInput) return;
+      var val = parseFloat(weightInput.value);
+      weightChips.forEach(function (chip) {
+        var chipVal = parseFloat(chip.getAttribute('data-weight-chip'));
+        var active = !isNaN(val) && Math.abs(val - chipVal) < 0.001;
+        setChipActiveState(chip, active);
+      });
+    }
+
+    weightChips.forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        if (!weightInput) return;
+        weightInput.value = chip.getAttribute('data-weight-chip');
+        syncWeightUI();
+      });
+    });
+    if (weightInput) {
+      weightInput.addEventListener('input', syncWeightUI);
+      syncWeightUI();
+    }
+
+    // 4. Deadline quick presets + live relative preview
+    var deadlineInput = document.getElementById('id_deadline');
+    var deadlineHint = document.getElementById('deadline-preview-hint');
+    var deadlinePresets = Array.prototype.slice.call(document.querySelectorAll('[data-deadline-preset]'));
+    var activeDeadlinePreset = '';
+
+    function pad2(n) {
+      return n < 10 ? '0' + n : String(n);
+    }
+
+    function toLocalInputValue(date) {
+      return (
+        date.getFullYear() + '-' +
+        pad2(date.getMonth() + 1) + '-' +
+        pad2(date.getDate()) + 'T' +
+        pad2(date.getHours()) + ':' +
+        pad2(date.getMinutes())
+      );
+    }
+
+    function syncDeadlinePresetUI() {
+      deadlinePresets.forEach(function (btn) {
+        var isMatch = activeDeadlinePreset && btn.getAttribute('data-deadline-preset') === activeDeadlinePreset;
+        setChipActiveState(btn, Boolean(isMatch));
+      });
+    }
+
+    function updateDeadlinePreview() {
+      if (!deadlineInput || !deadlineHint) return;
+      var raw = deadlineInput.value;
+      if (!raw) {
+        deadlineHint.textContent = '';
+        return;
+      }
+      var target = new Date(raw);
+      if (isNaN(target.getTime())) {
+        deadlineHint.textContent = '';
+        return;
+      }
+      var diffSec = Math.round((target.getTime() - Date.now()) / 1000);
+      deadlineHint.classList.remove('text-rose-600', 'text-amber-700', 'text-indigo-600');
+      if (diffSec < 0) {
+        var absSec = Math.abs(diffSec);
+        var msg;
+        if (absSec < 3600) msg = 'Sudah lewat ' + Math.max(1, Math.floor(absSec / 60)) + ' mnt lalu';
+        else if (absSec < 86400) msg = 'Sudah lewat ' + Math.max(1, Math.floor(absSec / 3600)) + ' jam lalu';
+        else msg = 'Sudah lewat ' + Math.max(1, Math.floor(absSec / 86400)) + ' hari lalu';
+        deadlineHint.textContent = msg;
+        deadlineHint.classList.add('text-rose-600');
+      } else if (diffSec < 60) {
+        deadlineHint.textContent = '< 1 mnt dari sekarang';
+        deadlineHint.classList.add('text-rose-600');
+      } else if (diffSec < 3600) {
+        deadlineHint.textContent = Math.max(1, Math.floor(diffSec / 60)) + ' mnt dari sekarang';
+        deadlineHint.classList.add('text-rose-600');
+      } else if (diffSec < 86400) {
+        deadlineHint.textContent = Math.max(1, Math.round(diffSec / 3600)) + ' jam dari sekarang';
+        deadlineHint.classList.add('text-amber-700');
+      } else {
+        var days = Math.floor(diffSec / 86400);
+        var remHours = Math.round((diffSec % 86400) / 3600);
+        if (remHours >= 24) {
+          days += 1;
+          remHours = 0;
+        }
+        deadlineHint.textContent = remHours > 0 && days < 7
+          ? days + ' hari ' + remHours + ' jam lagi'
+          : days + ' hari lagi';
+        deadlineHint.classList.add(days <= 2 ? 'text-amber-700' : 'text-indigo-600');
+      }
+    }
+
+    deadlinePresets.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (!deadlineInput) return;
+        var preset = btn.getAttribute('data-deadline-preset');
+        var now = new Date();
+        var d = new Date(now.getTime());
+        if (preset === 'today') {
+          d.setHours(23, 59, 0, 0);
+          if (d.getTime() <= now.getTime()) {
+            d.setDate(d.getDate() + 1);
+          }
+        } else if (preset === 'tomorrow') {
+          d.setDate(d.getDate() + 1);
+          d.setHours(23, 59, 0, 0);
+        } else if (preset === '3days') {
+          d.setDate(d.getDate() + 3);
+          d.setHours(23, 59, 0, 0);
+        } else if (preset === '7days') {
+          d.setDate(d.getDate() + 7);
+          d.setHours(23, 59, 0, 0);
+        }
+        activeDeadlinePreset = preset || '';
+        deadlineInput.value = toLocalInputValue(d);
+        syncDeadlinePresetUI();
+        updateDeadlinePreview();
+      });
+    });
+    if (deadlineInput) {
+      deadlineInput.addEventListener('input', function () {
+        activeDeadlinePreset = '';
+        syncDeadlinePresetUI();
+        updateDeadlinePreview();
+      });
+      deadlineInput.addEventListener('change', function () {
+        activeDeadlinePreset = '';
+        syncDeadlinePresetUI();
+        updateDeadlinePreview();
+      });
+      updateDeadlinePreview();
+    }
+
+    // 4b. Auto-check group project when category === 'PROJECT'
+    var categorySelect = document.getElementById('id_category');
+    var groupProjectCheckbox = document.getElementById('id_is_group_project');
+    if (categorySelect && groupProjectCheckbox) {
+      categorySelect.addEventListener('change', function () {
+        if (categorySelect.value === 'PROJECT') {
+          groupProjectCheckbox.checked = true;
+        }
+      });
+    }
+
+    // 5. Inline Quick Add Course
+    var toggleBtn = document.getElementById('quick-course-toggle-btn');
+    var cancelBtn = document.getElementById('quick-course-cancel-btn');
+    var saveBtn = document.getElementById('quick-course-save-btn');
+    var panel = document.getElementById('quick-course-panel');
+    var codeInput = document.getElementById('quick-course-code');
+    var nameInput = document.getElementById('quick-course-name');
+    var errEl = document.getElementById('quick-course-error');
+    var courseSelect = document.getElementById('id_course');
+
+    function setPanelOpen(open) {
+      if (!panel) return;
+      panel.classList.toggle('hidden', !open);
+      if (toggleBtn) toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (errEl) {
+        errEl.classList.add('hidden');
+        errEl.textContent = '';
+      }
+      if (open && codeInput) codeInput.focus();
+    }
+
+    function showQuickError(msg) {
+      if (!errEl) return;
+      errEl.textContent = msg;
+      errEl.classList.remove('hidden');
+    }
+
+    function getCsrfToken() {
+      var formCsrf = document.querySelector('#task-main-form input[name="csrfmiddlewaretoken"]');
+      if (formCsrf && formCsrf.value) return formCsrf.value;
+      var match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+      return match && match[1] ? decodeURIComponent(match[1]) : '';
+    }
+
+    async function submitQuickCourse() {
+      if (!panel || !saveBtn || saveBtn.disabled) return;
+      var code = (codeInput ? codeInput.value : '').trim().toUpperCase();
+      var name = (nameInput ? nameInput.value : '').trim();
+      if (!code || !name) {
+        showQuickError('Kode dan nama mata kuliah wajib diisi.');
+        return;
+      }
+
+      saveBtn.disabled = true;
+      if (errEl) errEl.classList.add('hidden');
+
+      try {
+        var resp = await fetch(panel.getAttribute('data-quick-course-url'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest',
+          },
+          body: JSON.stringify({ code: code, name: name }),
+        });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+          showQuickError((data && data.error) || 'Gagal menambahkan mata kuliah.');
+          return;
+        }
+
+        if (courseSelect) {
+          var existing = null;
+          for (var i = 0; i < courseSelect.options.length; i++) {
+            if (courseSelect.options[i].value === String(data.id)) {
+              existing = courseSelect.options[i];
+              break;
+            }
+          }
+          if (!existing) {
+            var opt = document.createElement('option');
+            opt.value = String(data.id);
+            opt.textContent = data.label || (data.code + ' — ' + data.name);
+            courseSelect.appendChild(opt);
+          }
+          courseSelect.value = String(data.id);
+        }
+
+        if (codeInput) codeInput.value = '';
+        if (nameInput) nameInput.value = '';
+        setPanelOpen(false);
+        if (typeof window.atrToast === 'function') {
+          window.atrToast(
+            data.created
+              ? 'Mata kuliah ' + data.code + ' ditambahkan & dipilih!'
+              : 'Mata kuliah ' + data.code + ' sudah ada dan dipilih.',
+            'success'
+          );
+        }
+      } catch (_) {
+        showQuickError('Terjadi kesalahan jaringan. Coba lagi.');
+      } finally {
+        saveBtn.disabled = false;
+      }
+    }
+
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', function () {
+        setPanelOpen(panel && panel.classList.contains('hidden'));
+      });
+    }
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', function () {
+        setPanelOpen(false);
+        if (toggleBtn) toggleBtn.focus();
+      });
+    }
+    if (saveBtn) {
+      saveBtn.addEventListener('click', submitQuickCourse);
+    }
+    [codeInput, nameInput].forEach(function (inp) {
+      if (!inp) return;
+      inp.addEventListener('keydown', function (evt) {
+        if (evt.key === 'Enter') {
+          evt.preventDefault();
+          submitQuickCourse();
+        }
+      });
+    });
+  })();
+</script>
 {% endblock %}

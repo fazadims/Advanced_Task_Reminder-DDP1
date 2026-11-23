@@ -1,64 +1,169 @@
-<div class="rounded-xl border border-purple-200 bg-purple-50/70 p-4 space-y-3">
-  <div class="flex items-center justify-between gap-2">
-    <div class="flex items-center gap-2">
-      <h3 class="text-sm font-bold text-slate-900">Suggested Sub-tasks</h3>
+{% load task_ux %}
+{% phase_choices as checkpoint_phases %}
+<div id="ai-preview-panel" class="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4 sm:p-5 space-y-3.5">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex flex-wrap items-center gap-2">
+      <h3 class="text-sm font-bold text-slate-900">Saran Sub-tugas</h3>
       {% if source == "ai" %}
-        <span class="px-2 py-0.5 rounded-full bg-purple-600 text-white text-[11px] font-semibold">AI Suggested</span>
+        <span class="px-2.5 py-0.5 rounded-full bg-indigo-600 text-white text-[11px] font-semibold">Saran AI</span>
       {% else %}
-        <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px] font-semibold">Smart Template Fallback</span>
+        <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[11px] font-semibold">
+          <span>Template Cerdas</span>
+          <span class="text-amber-800 font-medium">· Luring</span>
+        </span>
       {% endif %}
     </div>
     <button type="button"
             onclick="document.getElementById('ai-checkpoint-preview-box').innerHTML = ''"
-            class="text-xs text-slate-500 hover:text-slate-700">
-      Close
+            class="px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:text-slate-700 hover:bg-white/70 transition">
+      Tutup
     </button>
   </div>
 
-  <form hx-post="{% url 'tasks:apply_ai_checkpoints' task.pk %}"
+  <form id="ai-checkpoint-apply-form"
+        hx-post="{% url 'tasks:apply_ai_checkpoints' task.pk %}"
         hx-target="#checkpoint-list"
         hx-swap="outerHTML"
+        hx-disabled-elt="find button[type='submit']"
         hx-on::after-request="if(event.detail.successful) document.getElementById('ai-checkpoint-preview-box').innerHTML = ''"
         class="space-y-2.5">
     {% csrf_token %}
     <input type="hidden" name="source" value="{{ source|default:'template' }}">
 
+    {% if suggestions %}
+      <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <button type="button"
+                id="ai-toggle-all-btn"
+                class="px-2.5 py-1 rounded-lg border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 font-semibold transition">
+          Batal Pilih Semua
+        </button>
+        <span id="ai-selection-summary" class="font-medium text-slate-600 tabular-nums">
+          {{ suggestions|length }}/{{ suggestions|length }} dipilih
+        </span>
+      </div>
+    {% endif %}
+
     {% for item in suggestions %}
-      <div class="flex flex-col sm:flex-row sm:items-center gap-2 bg-white p-2.5 rounded-lg border border-purple-100">
-        <input type="checkbox" name="selected" value="{{ forloop.counter0 }}" checked
-               class="h-4 w-4 rounded border-slate-300 text-purple-600 focus:ring-purple-500">
-        <input type="text" name="title_{{ forloop.counter0 }}" value="{{ item.title }}"
-               class="flex-1 rounded-md border border-slate-200 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
+      <div class="flex flex-col sm:flex-row sm:items-center gap-2 bg-white p-2.5 rounded-xl border border-indigo-100 shadow-sm" data-ai-row>
+        <input type="checkbox"
+               name="selected"
+               value="{{ forloop.counter0 }}"
+               checked
+               data-ai-checkbox
+               aria-label="Pilih saran {{ item.title }}"
+               class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer shrink-0">
+        <input type="text"
+               name="title_{{ forloop.counter0 }}"
+               value="{{ item.title }}"
+               data-ai-title
+               aria-label="Judul saran sub-tugas"
+               class="flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
         <select name="phase_{{ forloop.counter0 }}"
-                class="rounded-md border border-slate-200 px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-          <option value="RESEARCH" {% if item.phase == 'RESEARCH' %}selected{% endif %}>RESEARCH</option>
-          <option value="DRAFT" {% if item.phase == 'DRAFT' %}selected{% endif %}>DRAFT</option>
-          <option value="REVIEW" {% if item.phase == 'REVIEW' %}selected{% endif %}>REVIEW</option>
-          <option value="SUBMIT" {% if item.phase == 'SUBMIT' %}selected{% endif %}>SUBMIT</option>
-          <option value="CUSTOM" {% if item.phase == 'CUSTOM' or not item.phase %}selected{% endif %}>CUSTOM</option>
+                aria-label="Tahap sub-tugas"
+                class="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs bg-white text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+          {% for val, label in checkpoint_phases %}
+            <option value="{{ val }}" {% if item.phase == val %}selected{% elif not item.phase and val == 'CUSTOM' %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
         </select>
-        <div class="flex items-center gap-1">
-          <input type="number" name="estimated_minutes_{{ forloop.counter0 }}" value="{{ item.estimated_minutes|default:30 }}" min="5" max="600"
-                 class="w-16 rounded-md border border-slate-200 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500">
-          <span class="text-xs text-slate-500">m</span>
+        <div class="flex items-center gap-1 shrink-0">
+          <input type="number"
+                 name="estimated_minutes_{{ forloop.counter0 }}"
+                 value="{{ item.estimated_minutes|default:30 }}"
+                 min="1"
+                 max="600"
+                 data-ai-minutes
+                 aria-label="Estimasi menit"
+                 class="w-16 rounded-lg border border-slate-200 px-2 py-1.5 text-xs text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+          <span class="text-xs text-slate-500">mnt</span>
         </div>
       </div>
     {% empty %}
-      <p class="text-xs text-slate-600">No suggestions were generated.</p>
+      <p class="text-xs text-slate-600 bg-white rounded-xl border border-slate-200 p-3">
+        Belum ada saran yang dihasilkan. Coba tambahkan sedikit konteks tugas lalu ulangi.
+      </p>
     {% endfor %}
 
     {% if suggestions %}
       <div class="flex items-center justify-end gap-2 pt-2">
         <button type="button"
                 onclick="document.getElementById('ai-checkpoint-preview-box').innerHTML = ''"
-                class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50">
-          Cancel
+                class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 transition">
+          Batal
         </button>
         <button type="submit"
-                class="px-4 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold transition">
-          Apply Selected Checkpoints
+                id="ai-apply-btn"
+                class="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold transition">
+          Terapkan Checkpoint
         </button>
       </div>
     {% endif %}
   </form>
 </div>
+{% if suggestions %}
+<script>
+  (function () {
+    var form = document.getElementById('ai-checkpoint-apply-form');
+    if (!form) return;
+    var toggleBtn = document.getElementById('ai-toggle-all-btn');
+    var summaryEl = document.getElementById('ai-selection-summary');
+    var applyBtn = document.getElementById('ai-apply-btn');
+    var rows = Array.prototype.slice.call(form.querySelectorAll('[data-ai-row]'));
+
+    function formatMinutes(total) {
+      total = Math.max(0, Math.round(total));
+      var h = Math.floor(total / 60);
+      var m = total % 60;
+      if (h > 0 && m > 0) return h + ' jam ' + m + ' mnt';
+      if (h > 0) return h + ' jam';
+      return m + ' mnt';
+    }
+
+    function updateSummary() {
+      var checkedCount = 0;
+      var validCheckedCount = 0;
+      var totalMinutes = 0;
+      rows.forEach(function (row) {
+        var cb = row.querySelector('[data-ai-checkbox]');
+        var titleInput = row.querySelector('[data-ai-title]');
+        var minsInput = row.querySelector('[data-ai-minutes]');
+        var titleText = titleInput ? titleInput.value.trim() : '';
+        if (cb && cb.checked) {
+          checkedCount += 1;
+          if (titleText.length > 0) {
+            validCheckedCount += 1;
+            var mins = parseInt(minsInput ? minsInput.value : '0', 10);
+            if (!isNaN(mins) && mins > 0) totalMinutes += mins;
+          }
+        }
+      });
+      if (summaryEl) {
+        summaryEl.textContent = validCheckedCount + '/' + rows.length + ' dipilih · Total ' + formatMinutes(totalMinutes);
+      }
+      if (applyBtn) {
+        applyBtn.disabled = validCheckedCount === 0;
+      }
+      if (toggleBtn) {
+        toggleBtn.textContent = checkedCount === rows.length ? 'Batal Pilih Semua' : 'Pilih Semua';
+      }
+    }
+
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', function () {
+        var allChecked = rows.every(function (row) {
+          var cb = row.querySelector('[data-ai-checkbox]');
+          return cb && cb.checked;
+        });
+        rows.forEach(function (row) {
+          var cb = row.querySelector('[data-ai-checkbox]');
+          if (cb) cb.checked = !allChecked;
+        });
+        updateSummary();
+      });
+    }
+
+    form.addEventListener('change', updateSummary);
+    form.addEventListener('input', updateSummary);
+    updateSummary();
+  })();
+</script>
+{% endif %}

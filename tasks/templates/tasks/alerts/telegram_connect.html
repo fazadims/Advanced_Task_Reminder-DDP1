@@ -1,74 +1,196 @@
 {% extends "base.html" %}
-{% block title %}Telegram Bot Connect — ATR{% endblock %}
+{% block title %}Hubungkan Bot Telegram — ATR{% endblock %}
 
 {% block content %}
 <div class="max-w-2xl mx-auto space-y-6">
-  <div>
-    <h1 class="text-2xl font-bold text-slate-900">Connect Telegram Bot</h1>
-    <p class="text-sm text-slate-500">Receive escalating alerts and daily briefings directly on Telegram with quick Done / Snooze actions.</p>
-  </div>
-
-  <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
-    <div class="flex items-center justify-between gap-3">
-      <div>
-        <h2 class="text-base font-bold text-slate-900">Connection Status</h2>
-        <p class="text-xs text-slate-500">One-time secure link between your ATR account and Telegram chat.</p>
-      </div>
-      {% if link.is_verified %}
-        <span class="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">Connected</span>
-      {% else %}
-        <span class="px-3 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold">Not Linked</span>
-      {% endif %}
+  <div class="flex flex-wrap items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-extrabold tracking-tight text-slate-900">Hubungkan Bot Telegram</h1>
+      <p class="text-sm text-slate-500 mt-1">
+        Terima pengingat bertingkat dan ringkasan harian langsung di Telegram lengkap dengan tombol cepat Selesai &amp; Tunda.
+      </p>
     </div>
 
     {% if link.is_verified %}
-      <div class="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-900 space-y-1">
-        <p class="font-semibold">Your Telegram account is linked and verified!</p>
-        <p class="text-xs">Chat ID: <code class="px-1.5 py-0.5 rounded bg-white font-mono">{{ link.chat_id }}</code></p>
-        {% if link.linked_at %}
-          <p class="text-xs">Linked at: {{ link.linked_at|date:"d M Y, H:i" }}</p>
-        {% endif %}
-      </div>
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold shrink-0">
+        <span class="w-2 h-2 rounded-full bg-emerald-500" aria-hidden="true"></span>
+        <span>Terhubung</span>
+      </span>
     {% else %}
-      <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
-        {% if not bot_username_configured %}
-          <div class="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
-            <strong>Configuration hint:</strong> <code class="px-1 py-0.5 rounded bg-white/80 font-mono">TELEGRAM_BOT_USERNAME</code> is not configured in <code class="px-1 py-0.5 rounded bg-white/80 font-mono">.env</code> yet (currently showing placeholder <span class="font-semibold">@{{ bot_username }}</span>).
-          </div>
-        {% endif %}
-        <p class="text-sm text-slate-700">Click the button below to open Telegram and automatically link your account:</p>
-        <a href="https://t.me/{{ bot_username }}?start={{ link.link_token }}" target="_blank" rel="noopener noreferrer"
-           class="inline-flex items-center justify-center px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-sm font-semibold shadow-sm transition">
-          Open @{{ bot_username }} in Telegram
-        </a>
-        <p class="text-xs text-slate-500">
-          Or send manually in chat:
-          <code class="px-2 py-0.5 rounded bg-white border border-slate-200 font-mono text-slate-800">/start {{ link.link_token }}</code>
-        </p>
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold shrink-0">
+        <span class="w-2 h-2 rounded-full bg-amber-500" aria-hidden="true"></span>
+        <span>Belum Terhubung</span>
+      </span>
+    {% endif %}
+  </div>
+
+  <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-5">
+    <div class="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-100">
+      <div>
+        <h2 class="text-base font-bold text-slate-900">Status Koneksi</h2>
+        <p class="text-xs text-slate-500 mt-0.5">Tautan satu kali yang aman antara akun ATR dan chat pribadi Telegram-mu.</p>
+      </div>
+      {% if not link.is_verified %}
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 text-[11px] font-semibold">
+          <svg class="w-3.5 h-3.5 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"></circle>
+            <polyline points="12 7 12 12 15 15"></polyline>
+          </svg>
+          <span>Token berlaku 30 menit</span>
+        </span>
+      {% endif %}
+    </div>
+
+    {% if not bot_username_configured and not link.is_verified %}
+      <div class="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 leading-relaxed">
+        <strong>Catatan konfigurasi:</strong> Variabel <code class="px-1.5 py-0.5 rounded bg-white/90 border border-amber-200 font-mono">TELEGRAM_BOT_USERNAME</code> belum diatur di <code class="px-1.5 py-0.5 rounded bg-white/90 border border-amber-200 font-mono">.env</code> (saat ini menggunakan placeholder <span class="font-semibold">@{{ bot_username }}</span>).
       </div>
     {% endif %}
 
-    <div class="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-      <p class="text-xs text-slate-500">Need to re-link or revoke the current token?</p>
-      <form method="post" action="{% url 'alerts:telegram_connect' %}"{% if link.is_verified %} onsubmit="return confirm('Regenerating the token will disconnect your current Telegram chat. Continue?');"{% endif %}>
+    {% if link.is_verified %}
+      <div class="p-5 rounded-2xl bg-emerald-50/80 border border-emerald-200 space-y-3">
+        <div class="flex items-start gap-3">
+          <span class="w-9 h-9 rounded-xl bg-emerald-600 text-white inline-flex items-center justify-center shrink-0" aria-hidden="true">
+            <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/>
+            </svg>
+          </span>
+          <div class="space-y-1 text-sm text-emerald-950">
+            <p class="font-bold">Akun Telegram kamu sudah terhubung dan terverifikasi!</p>
+            <p class="text-xs text-emerald-800">
+              Ketik <code class="px-1.5 py-0.5 rounded bg-white/90 border border-emerald-200 font-mono">/today</code> kapan saja di bot untuk melihat Ringkasan Harian, atau tekan <strong>Selesai</strong> / <strong>Tunda 1j</strong> langsung di pesan pengingat.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 text-xs">
+          <div class="rounded-xl bg-white/90 border border-emerald-200/80 px-3.5 py-2.5">
+            <span class="text-emerald-700 font-medium block">Chat ID</span>
+            <code class="font-mono font-bold text-slate-900 mt-0.5 block">{{ link.chat_id }}</code>
+          </div>
+          {% if link.linked_at %}
+            <div class="rounded-xl bg-white/90 border border-emerald-200/80 px-3.5 py-2.5">
+              <span class="text-emerald-700 font-medium block">Terhubung sejak</span>
+              <span class="font-bold text-slate-900 mt-0.5 block atr-tabular">{{ link.linked_at|date:"d M Y, H:i" }}</span>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <ol class="space-y-4">
+        <li class="flex items-start gap-3.5 p-4 rounded-xl bg-slate-50/80 border border-slate-200/90">
+          <span class="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-extrabold inline-flex items-center justify-center shrink-0 mt-0.5">
+            1
+          </span>
+          <div class="space-y-2.5 flex-1 min-w-0">
+            <div>
+              <p class="text-sm font-bold text-slate-900">Buka bot Telegram ATR</p>
+              <p class="text-xs text-slate-600 mt-0.5">
+                Buka bot <span class="font-semibold text-slate-800">@{{ bot_username }}</span> lewat tombol di bawah atau cari manual di aplikasi Telegram.
+              </p>
+            </div>
+            <a href="https://t.me/{{ bot_username }}?start={{ link.link_token }}"
+               target="_blank"
+               rel="noopener noreferrer"
+               class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs sm:text-sm font-semibold shadow-sm transition">
+              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+              <span>Buka @{{ bot_username }} di Telegram</span>
+            </a>
+          </div>
+        </li>
+
+        <li class="flex items-start gap-3.5 p-4 rounded-xl bg-slate-50/80 border border-slate-200/90">
+          <span class="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-extrabold inline-flex items-center justify-center shrink-0 mt-0.5">
+            2
+          </span>
+          <div class="space-y-2.5 flex-1 min-w-0">
+            <div>
+              <p class="text-sm font-bold text-slate-900">Kirim perintah verifikasi</p>
+              <p class="text-xs text-slate-600 mt-0.5">
+                Jika tombol otomatis belum mengisi pesan, salin dan kirim perintah ini di chat pribadi bot:
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 p-2.5 rounded-xl bg-white border border-slate-200">
+              <code class="flex-1 min-w-0 text-xs font-mono text-slate-800 break-all select-all">/start {{ link.link_token }}</code>
+              <button type="button"
+                      data-copy-text="/start {{ link.link_token }}"
+                      data-copied-label="Tersalin!"
+                      data-copy-toast="Perintah /start berhasil disalin!"
+                      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shrink-0 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+                <span data-copy-label>Salin</span>
+              </button>
+            </div>
+          </div>
+        </li>
+
+        <li class="flex items-start gap-3.5 p-4 rounded-xl bg-slate-50/80 border border-slate-200/90">
+          <span class="w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-extrabold inline-flex items-center justify-center shrink-0 mt-0.5">
+            3
+          </span>
+          <div class="space-y-1 flex-1 min-w-0">
+            <p class="text-sm font-bold text-slate-900">Kelola tugas langsung dari Telegram</p>
+            <p class="text-xs text-slate-600 leading-relaxed">
+              Setelah terhubung, ketik <code class="px-1.5 py-0.5 rounded bg-white border border-slate-200 font-mono text-slate-800">/today</code> kapan saja untuk meminta Ringkasan Harian, atau klik tombol <strong>Selesai</strong> / <strong>Tunda 1j</strong> langsung di chat Telegram.
+            </p>
+          </div>
+        </li>
+      </ol>
+    {% endif %}
+
+    <div class="pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+      <p class="text-xs text-slate-500">
+        {% if link.is_verified %}
+          Ingin memutus koneksi atau mengganti akun Telegram?
+        {% else %}
+          Token sudah kedaluwarsa atau ingin membuat token baru?
+        {% endif %}
+      </p>
+      <form method="post" action="{% url 'alerts:telegram_connect' %}"{% if link.is_verified %} onsubmit="return confirm('Membuat token baru akan memutuskan koneksi chat Telegram saat ini. Lanjutkan?');"{% endif %}>
         {% csrf_token %}
         <input type="hidden" name="action" value="regenerate">
         <button type="submit"
-                class="px-3.5 py-2 rounded-lg border {% if link.is_verified %}border-red-200 hover:bg-red-50 text-red-700{% else %}border-slate-200 hover:bg-slate-100 text-slate-700{% endif %} text-xs font-semibold transition">
-          {% if link.is_verified %}Disconnect &amp; Regenerate Token{% else %}Regenerate Token{% endif %}
+                class="px-3.5 py-2 rounded-xl border text-xs font-semibold transition {% if link.is_verified %}border-rose-200 bg-white hover:bg-rose-50 text-rose-700{% else %}border-slate-200 bg-white hover:bg-slate-50 text-slate-700{% endif %}">
+          {% if link.is_verified %}Putuskan &amp; Buat Token Baru{% else %}Buat Token Baru{% endif %}
         </button>
       </form>
     </div>
   </section>
 
-  <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-3">
-    <h2 class="text-base font-bold text-slate-900">Bot Commands &amp; Local Development</h2>
-    <ul class="space-y-2 text-sm text-slate-600 list-disc list-inside">
-      <li>Send <code class="px-1.5 py-0.5 rounded bg-slate-100 font-mono text-xs">/today</code> in Telegram anytime to receive your anti-spam Daily Digest.</li>
-      <li>Tap inline <strong>Done</strong> or <strong>Snooze 1h</strong> buttons on Telegram alerts to sync status back to ATR.</li>
-      <li>For local development without a public webhook URL, run polling in your terminal:</li>
-    </ul>
-    <pre class="p-3 rounded-xl bg-slate-900 text-slate-100 text-xs font-mono overflow-x-auto">python manage.py run_telegram_bot</pre>
-  </section>
+  <details class="group bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+    <summary class="px-6 py-4 cursor-pointer list-none flex items-center justify-between gap-3 text-sm font-semibold text-slate-700 hover:bg-slate-50/80 transition">
+      <span class="inline-flex items-center gap-2">
+        <svg class="w-4 h-4 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="4 17 10 11 4 5"></polyline>
+          <line x1="12" y1="19" x2="20" y2="19"></line>
+        </svg>
+        <span>Untuk Pengembang: Mode Polling Lokal</span>
+      </span>
+      <svg class="w-4 h-4 text-slate-400 transition-transform group-open:rotate-180" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polyline points="6 9 12 15 18 9"></polyline>
+      </svg>
+    </summary>
+    <div class="px-6 pb-5 pt-2 border-t border-slate-100 space-y-3 text-xs text-slate-600">
+      <p>
+        Untuk pengembangan lokal tanpa URL webhook publik, jalankan perintah polling berikut di terminal:
+      </p>
+      <div class="flex flex-wrap items-center justify-between gap-2 p-3 rounded-xl bg-slate-900 text-slate-100">
+        <code class="font-mono text-xs overflow-x-auto">python manage.py run_telegram_bot</code>
+        <button type="button"
+                data-copy-text="python manage.py run_telegram_bot"
+                data-copied-label="Tersalin!"
+                data-copy-toast="Perintah polling berhasil disalin!"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-[11px] font-semibold shrink-0 transition">
+          <span data-copy-label>Salin</span>
+        </button>
+      </div>
+    </div>
+  </details>
 </div>
 {% endblock %}

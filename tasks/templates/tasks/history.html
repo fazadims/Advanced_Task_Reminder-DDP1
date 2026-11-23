@@ -1,17 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Completed Tasks History — ATR{% endblock %}
+{% load task_ux %}
+{% block title %}Riwayat Tugas Selesai — ATR{% endblock %}
 
 {% block content %}
 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
   <div>
-    <h1 class="text-2xl font-bold text-slate-900">Task History</h1>
-    <p class="text-sm text-slate-500">Review completed assignments and compare estimated vs actual focus duration.</p>
+    <h1 class="text-2xl font-extrabold tracking-tight text-slate-900">Riwayat Tugas</h1>
+    <p class="text-sm text-slate-500 mt-0.5">Evaluasi tugas yang sudah selesai dan bandingkan estimasi dengan durasi fokus aktualmu.</p>
   </div>
 
   <form method="get" class="flex items-center gap-2">
-    <select name="course" aria-label="Filter by course" onchange="this.form.submit()"
-            class="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
-      <option value="">All Courses</option>
+    <select name="course" aria-label="Filter berdasarkan mata kuliah" onchange="this.form.submit()"
+            class="rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-800 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+      <option value="">Semua Mata Kuliah</option>
       {% for c in courses %}
         <option value="{{ c.pk }}" {% if request.GET.course == c.pk|stringformat:"s" %}selected{% endif %}>
           {{ c.code }} — {{ c.name }}
@@ -19,40 +20,66 @@
       {% endfor %}
     </select>
     {% if request.GET.course %}
-      <a href="{% url 'tasks:task_history' %}" class="px-3 py-2 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-100">
+      <a href="{% url 'tasks:task_history' %}" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs font-semibold text-slate-600 hover:bg-slate-100 transition">
         Reset
       </a>
     {% endif %}
   </form>
 </div>
 
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-2xl border border-emerald-200/80 p-5 shadow-sm">
+    <p class="text-xs font-semibold uppercase tracking-wider text-emerald-700">Total Tugas Selesai</p>
+    <p class="text-3xl font-extrabold text-slate-900 mt-1.5 tabular-nums">{{ history_stats.total_completed }}</p>
+    <p class="text-xs text-slate-500 mt-1">Tugas tuntas sesuai filter aktif</p>
+  </div>
+  <div class="bg-white rounded-2xl border border-indigo-200/80 p-5 shadow-sm">
+    <p class="text-xs font-semibold uppercase tracking-wider text-indigo-700">Total Waktu Fokus</p>
+    <p class="text-3xl font-extrabold text-slate-900 mt-1.5 tabular-nums">{{ history_stats.total_focus_minutes|human_duration }}</p>
+    <p class="text-xs text-slate-500 mt-1">Akumulasi durasi fokus tercatat</p>
+  </div>
+  <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+    <p class="text-xs font-semibold uppercase tracking-wider text-slate-600">Akurasi Estimasi</p>
+    <p class="text-xl sm:text-2xl font-extrabold text-slate-900 mt-2 leading-tight">{{ history_stats.avg_accuracy_label }}</p>
+    <p class="text-xs text-slate-500 mt-1">
+      {% if history_stats.tracked_count > 0 %}
+        Dari {{ history_stats.tracked_count }} tugas terlacak
+      {% else %}
+        Gunakan Mode Fokus agar durasi tercatat
+      {% endif %}
+    </p>
+  </div>
+</div>
+
 {% if page_obj and page_obj.object_list %}
   <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
     <div class="overflow-x-auto">
       <table class="w-full text-sm text-left">
-        <thead class="bg-slate-50 border-b border-slate-200 text-xs uppercase text-slate-500">
+        <thead class="bg-slate-50 border-b border-slate-200 text-xs uppercase tracking-wider text-slate-500">
           <tr>
-            <th class="px-5 py-3 font-semibold">Task</th>
-            <th class="px-5 py-3 font-semibold">Course</th>
-            <th class="px-5 py-3 font-semibold">Completed At</th>
-            <th class="px-5 py-3 font-semibold">Estimated vs Actual</th>
-            <th class="px-5 py-3 font-semibold text-right">Variance</th>
+            <th class="px-5 py-3.5 font-semibold">Tugas</th>
+            <th class="px-5 py-3.5 font-semibold">Mata Kuliah</th>
+            <th class="px-5 py-3.5 font-semibold">Selesai Pada</th>
+            <th class="px-5 py-3.5 font-semibold">Estimasi vs Aktual</th>
+            <th class="px-5 py-3.5 font-semibold text-right">Selisih Waktu</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100">
           {% for task in page_obj %}
             {% with actual=task.effective_actual_minutes diff=task.duration_diff_minutes %}
-            <tr class="hover:bg-slate-50 transition">
+            <tr class="hover:bg-slate-50/80 transition">
               <td class="px-5 py-3.5 font-semibold text-slate-900">
                 <a href="{% url 'tasks:task_detail' task.pk %}" class="hover:text-indigo-600 transition">
                   {{ task.title }}
                 </a>
               </td>
-              <td class="px-5 py-3.5">
+              <td class="px-5 py-3.5 whitespace-nowrap">
                 {% if task.course %}
-                  <span class="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-xs font-semibold">{{ task.course.code }}</span>
+                  <span class="px-2.5 py-0.5 rounded-full border text-xs font-semibold {{ task.course|course_badge_class }}">
+                    {{ task.course.code }}
+                  </span>
                 {% else %}
-                  <span class="text-slate-400">—</span>
+                  <span class="text-slate-500">—</span>
                 {% endif %}
               </td>
               <td class="px-5 py-3.5 text-slate-600 whitespace-nowrap">
@@ -63,24 +90,31 @@
                 {% endif %}
               </td>
               <td class="px-5 py-3.5 text-slate-700 whitespace-nowrap">
-                {{ task.estimated_minutes }} mnt &rarr; <strong>{{ actual }} mnt</strong>
+                <span class="text-slate-500">{{ task.estimated_minutes|human_duration }}</span>
+                <span class="mx-1 text-slate-500" aria-hidden="true">&rarr;</span>
+                {% if actual == 0 %}
+                  <span class="text-slate-500">—</span>
+                {% else %}
+                  <strong class="text-slate-900">{{ actual|human_duration }}</strong>
+                {% endif %}
               </td>
               <td class="px-5 py-3.5 text-right whitespace-nowrap">
                 {% if actual == 0 %}
-                  <span class="inline-block px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold">
+                  <span class="inline-block px-2.5 py-0.5 rounded-full border border-slate-200 bg-slate-100 text-slate-600 text-xs font-semibold cursor-help"
+                        title="Gunakan Mode Fokus agar durasi tercatat otomatis">
                     Belum dilacak
                   </span>
                 {% elif diff == 0 %}
-                  <span class="inline-block px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
+                  <span class="inline-block px-2.5 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-semibold">
                     Tepat waktu
                   </span>
                 {% elif diff < 0 %}
-                  <span class="inline-block px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
-                    Lebih cepat {{ diff|stringformat:"d"|cut:"-" }} mnt
+                  <span class="inline-block px-2.5 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-semibold">
+                    Lebih cepat {{ diff|abs_int|human_duration }}
                   </span>
                 {% else %}
-                  <span class="inline-block px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-semibold">
-                    Lebih lama {{ diff }} mnt
+                  <span class="inline-block px-2.5 py-0.5 rounded-full border border-amber-200 bg-amber-50 text-amber-800 text-xs font-semibold">
+                    Lebih lama {{ diff|abs_int|human_duration }}
                   </span>
                 {% endif %}
               </td>
@@ -92,19 +126,19 @@
     </div>
 
     {% if page_obj.paginator.num_pages > 1 %}
-      <div class="px-5 py-3.5 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
-        <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      <div class="px-5 py-3.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+        <span>Halaman {{ page_obj.number }} dari {{ page_obj.paginator.num_pages }}</span>
         <div class="flex items-center gap-2">
           {% if page_obj.has_previous %}
             <a href="?page={{ page_obj.previous_page_number }}{% if request.GET.course %}&course={{ request.GET.course|urlencode }}{% endif %}"
-               class="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 font-medium">
-              &larr; Previous
+               class="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 font-semibold transition">
+              &larr; Sebelumnya
             </a>
           {% endif %}
           {% if page_obj.has_next %}
             <a href="?page={{ page_obj.next_page_number }}{% if request.GET.course %}&course={{ request.GET.course|urlencode }}{% endif %}"
-               class="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 font-medium">
-              Next &rarr;
+               class="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 font-semibold transition">
+              Berikutnya &rarr;
             </a>
           {% endif %}
         </div>
@@ -113,8 +147,26 @@
   </div>
 {% else %}
   <div class="bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center">
-    <p class="text-slate-700 font-semibold">No completed tasks yet.</p>
-    <p class="text-sm text-slate-500 mt-1">Finish checkpoints or mark a task as Done to see your estimation accuracy here.</p>
+    <svg class="w-11 h-11 mx-auto text-slate-400 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    {% if selected_course_id %}
+      <p class="text-base font-bold text-slate-800">Belum ada tugas selesai untuk mata kuliah ini.</p>
+      <p class="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+        Pilih mata kuliah lain atau tampilkan semua mata kuliah untuk melihat riwayat tugas yang sudah kamu selesaikan.
+      </p>
+      <a href="{% url 'tasks:task_history' %}" class="inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold shadow-sm transition">
+        Tampilkan Semua Mata Kuliah
+      </a>
+    {% else %}
+      <p class="text-base font-bold text-slate-800">Belum ada tugas yang selesai.</p>
+      <p class="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+        Selesaikan checkpoint atau tandai tugas sebagai <strong>Selesai</strong> untuk melihat riwayat dan akurasi estimasi waktumu di sini.
+      </p>
+      <a href="{% url 'tasks:task_list' %}" class="inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-sm transition">
+        Lihat Daftar Tugas
+      </a>
+    {% endif %}
   </div>
 {% endif %}
 {% endblock %}

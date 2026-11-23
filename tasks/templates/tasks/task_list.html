@@ -1,97 +1,228 @@
 {% extends "base.html" %}
-{% block title %}Tasks — ATR{% endblock %}
+{% load task_ux %}
+{% block title %}Daftar Tugas — ATR{% endblock %}
 
 {% block content %}
+{% difficulty_levels as difficulty_options %}
+
 <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
   <div>
-    <h1 class="text-2xl font-bold text-slate-900">My Tasks</h1>
-    <p class="text-sm text-slate-500">Track assignments, checkpoints, and deadlines.</p>
+    <h1 class="text-2xl font-extrabold tracking-tight text-slate-900">Daftar Tugas</h1>
+    <p class="text-sm text-slate-500 mt-0.5">Pantau deadline, cicil checkpoint, dan kelola prioritas kuliahmu.</p>
   </div>
-  <a href="{% url 'tasks:task_create' %}" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold">+ New Task</a>
+  <a href="{% url 'tasks:task_create' %}"
+     class="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-sm transition">
+    <span>+ Buat Tugas Baru</span>
+  </a>
 </div>
 
-<form method="get" class="bg-white rounded-xl border border-slate-200 p-4 mb-6 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-  <div>
-    <label for="filter-course" class="block text-xs font-medium text-slate-600 mb-1">Course</label>
-    <select id="filter-course" name="course" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white">
-      <option value="">All Courses</option>
-      {% for c in courses %}
-        <option value="{{ c.pk }}" {% if request.GET.course == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.code }} — {{ c.name }}</option>
-      {% endfor %}
-    </select>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-6">
+  <a href="{% if urgency == 'overdue' %}{% url 'tasks:task_list' %}{% else %}{% url 'tasks:task_list' %}?urgency=overdue{% endif %}"
+     {% if urgency == 'overdue' %}aria-current="page"{% endif %}
+     class="block rounded-2xl border p-4 shadow-sm hover:shadow-md transition {% if stats.overdue > 0 %}bg-rose-50/70 border-rose-200{% else %}bg-white border-slate-200 hover:border-rose-200{% endif %}{% if urgency == 'overdue' %} ring-2 ring-rose-500 border-rose-400{% endif %}">
+    <p class="text-xs font-semibold uppercase tracking-wider {% if stats.overdue > 0 %}text-rose-700{% else %}text-slate-500{% endif %}">Terlambat</p>
+    <p class="text-2xl sm:text-3xl font-extrabold mt-1 tabular-nums {% if stats.overdue > 0 %}text-rose-700{% else %}text-slate-900{% endif %}">{{ stats.overdue }}</p>
+  </a>
+  <a href="{% if urgency == 'soon' %}{% url 'tasks:task_list' %}{% else %}{% url 'tasks:task_list' %}?urgency=soon{% endif %}"
+     {% if urgency == 'soon' %}aria-current="page"{% endif %}
+     class="block rounded-2xl border p-4 shadow-sm hover:shadow-md transition {% if stats.due_soon > 0 %}bg-amber-50/70 border-amber-200{% else %}bg-white border-slate-200 hover:border-amber-200{% endif %}{% if urgency == 'soon' %} ring-2 ring-amber-500 border-amber-400{% endif %}">
+    <p class="text-xs font-semibold uppercase tracking-wider {% if stats.due_soon > 0 %}text-amber-800{% else %}text-slate-500{% endif %}">Segera (&le; 48 Jam)</p>
+    <p class="text-2xl sm:text-3xl font-extrabold mt-1 tabular-nums {% if stats.due_soon > 0 %}text-amber-800{% else %}text-slate-900{% endif %}">{{ stats.due_soon }}</p>
+  </a>
+  <a href="{% if urgency == 'active' %}{% url 'tasks:task_list' %}{% else %}{% url 'tasks:task_list' %}?urgency=active{% endif %}"
+     {% if urgency == 'active' %}aria-current="page"{% endif %}
+     class="block rounded-2xl border border-indigo-200/80 bg-indigo-50/40 p-4 shadow-sm hover:shadow-md transition{% if urgency == 'active' %} ring-2 ring-indigo-500 border-indigo-400{% endif %}">
+    <p class="text-xs font-semibold uppercase tracking-wider text-indigo-700">Tugas Aktif</p>
+    <p class="text-2xl sm:text-3xl font-extrabold text-indigo-950 mt-1 tabular-nums">{{ stats.active }}</p>
+  </a>
+  <a href="{% if request.GET.status == 'DONE' %}{% url 'tasks:task_list' %}{% else %}{% url 'tasks:task_list' %}?status=DONE{% endif %}"
+     {% if request.GET.status == 'DONE' %}aria-current="page"{% endif %}
+     class="block rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-4 shadow-sm hover:shadow-md transition{% if request.GET.status == 'DONE' %} ring-2 ring-emerald-500 border-emerald-400{% endif %}">
+    <p class="text-xs font-semibold uppercase tracking-wider text-emerald-700">Selesai</p>
+    <p class="text-2xl sm:text-3xl font-extrabold text-emerald-950 mt-1 tabular-nums">{{ stats.done }}</p>
+  </a>
+</div>
+
+<form method="get" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5 mb-6 space-y-3">
+  {% if urgency %}
+    <input type="hidden" name="urgency" value="{{ urgency }}">
+  {% endif %}
+  <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+    <div class="md:col-span-5">
+      <label for="filter-q" class="block text-xs font-semibold text-slate-600 mb-1">Cari Tugas</label>
+      <div class="relative">
+        <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z" clip-rule="evenodd"/>
+        </svg>
+        <input id="filter-q"
+               type="search"
+               name="q"
+               value="{{ q }}"
+               placeholder="Cari judul tugas, deskripsi, atau matkul..."
+               class="w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+      </div>
+    </div>
+
+    <div class="md:col-span-3">
+      <label for="filter-course" class="block text-xs font-semibold text-slate-600 mb-1">Mata Kuliah</label>
+      <select id="filter-course" name="course" onchange="this.form.submit()" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+        <option value="">Semua Mata Kuliah</option>
+        {% for c in courses %}
+          <option value="{{ c.pk }}" {% if request.GET.course == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.code }} — {{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="md:col-span-2">
+      <label for="filter-status" class="block text-xs font-semibold text-slate-600 mb-1">Status</label>
+      <select id="filter-status" name="status" onchange="this.form.submit()" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+        <option value="">Semua Tugas (Kecuali Arsip)</option>
+        {% for val, label in status_choices %}
+          <option value="{{ val }}" {% if request.GET.status == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="md:col-span-2">
+      <label for="filter-category" class="block text-xs font-semibold text-slate-600 mb-1">Kategori</label>
+      <select id="filter-category" name="category" onchange="this.form.submit()" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+        <option value="">Semua Kategori</option>
+        {% for val, label in category_choices %}
+          <option value="{{ val }}" {% if request.GET.category == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
   </div>
-  <div>
-    <label for="filter-status" class="block text-xs font-medium text-slate-600 mb-1">Status</label>
-    <select id="filter-status" name="status" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white">
-      <option value="">All Active (Excl. Archived)</option>
-      {% if status_choices %}
-        {% for val, label in status_choices %}<option value="{{ val }}" {% if request.GET.status == val %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      {% else %}
-        <option value="TODO" {% if request.GET.status == 'TODO' %}selected{% endif %}>Belum Dikerjakan</option>
-        <option value="IN_PROGRESS" {% if request.GET.status == 'IN_PROGRESS' %}selected{% endif %}>Sedang Dikerjakan</option>
-        <option value="DONE" {% if request.GET.status == 'DONE' %}selected{% endif %}>Selesai</option>
-        <option value="ARCHIVED" {% if request.GET.status == 'ARCHIVED' %}selected{% endif %}>Diarsipkan</option>
-      {% endif %}
-    </select>
-  </div>
-  <div>
-    <label for="filter-category" class="block text-xs font-medium text-slate-600 mb-1">Category</label>
-    <select id="filter-category" name="category" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white">
-      <option value="">All Categories</option>
-      {% if category_choices %}
-        {% for val, label in category_choices %}<option value="{{ val }}" {% if request.GET.category == val %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      {% else %}
-        <option value="LAB" {% if request.GET.category == 'LAB' %}selected{% endif %}>Lab / Praktikum</option>
-        <option value="TP" {% if request.GET.category == 'TP' %}selected{% endif %}>Tugas Pemrograman (TP)</option>
-        <option value="QUIZ" {% if request.GET.category == 'QUIZ' %}selected{% endif %}>Kuis / Quiz</option>
-        <option value="EXAM" {% if request.GET.category == 'EXAM' %}selected{% endif %}>Ujian (UTS/UAS)</option>
-        <option value="PROJECT" {% if request.GET.category == 'PROJECT' %}selected{% endif %}>Proyek Kelompok</option>
-        <option value="OTHER" {% if request.GET.category == 'OTHER' %}selected{% endif %}>Lainnya</option>
-      {% endif %}
-    </select>
-  </div>
-  <div class="flex gap-2">
-    <button type="submit" class="flex-1 px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-sm font-medium">Filter</button>
-    <a href="{% url 'tasks:task_list' %}" class="px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 text-sm">Reset</a>
+
+  <div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100">
+    <div class="flex items-center gap-2">
+      <label for="filter-sort" class="text-xs font-semibold text-slate-600 whitespace-nowrap">Urutkan:</label>
+      <select id="filter-sort" name="sort" onchange="this.form.submit()" class="rounded-xl border border-slate-300 px-3 py-1.5 text-xs font-medium bg-white text-slate-800 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+        <option value="deadline" {% if sort == 'deadline' %}selected{% endif %}>Deadline Terdekat</option>
+        <option value="priority" {% if sort == 'priority' %}selected{% endif %}>Prioritas Tertinggi</option>
+        <option value="progress" {% if sort == 'progress' %}selected{% endif %}>Progres Tertinggi</option>
+        <option value="newest" {% if sort == 'newest' %}selected{% endif %}>Terbaru</option>
+      </select>
+    </div>
+    <div class="flex items-center gap-2">
+      <button type="submit" class="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition">
+        Terapkan
+      </button>
+      <a href="{% url 'tasks:task_list' %}" class="px-3.5 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 text-xs font-semibold transition">
+        Reset
+      </a>
+    </div>
   </div>
 </form>
 
 {% if tasks %}
   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
     {% for task in tasks %}
-      <article class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between gap-4">
-        <div>
-          <div class="flex flex-wrap items-center gap-1.5 mb-2 text-xs">
-            {% if task.course %}<span class="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold">{{ task.course.code }}</span>{% endif %}
-            <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">{{ task.get_category_display }}</span>
-            <span class="ml-auto px-2 py-0.5 rounded-full font-medium {% if task.status == 'DONE' %}bg-emerald-100 text-emerald-700{% elif task.status == 'IN_PROGRESS' %}bg-blue-100 text-blue-700{% elif task.status == 'ARCHIVED' %}bg-slate-200 text-slate-600{% else %}bg-amber-100 text-amber-700{% endif %}">{{ task.get_status_display }}</span>
+      {% with dl=task.deadline|relative_deadline prio=task.priority_level|priority_meta diff=task.difficulty|difficulty_info cp_stat=task|checkpoint_progress %}
+      <article class="rounded-2xl border border-slate-200 border-l-4 {{ task|urgency_stripe_class }} bg-white p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between gap-4">
+        <div class="space-y-3">
+          <div class="flex flex-wrap items-center gap-1.5 text-[11px]">
+            {% if task.course %}
+              <span class="px-2 py-0.5 rounded-full border font-semibold {{ task.course|course_badge_class }}">{{ task.course.code }}</span>
+            {% endif %}
+            <span class="text-slate-600 font-medium">{{ task.get_category_display }}</span>
+            <span class="ml-auto px-2 py-0.5 rounded-full border font-semibold {{ prio.badge_class }}">{{ prio.label }}</span>
           </div>
-          <a href="{% url 'tasks:task_detail' task.pk %}" class="block text-base font-bold text-slate-900 hover:text-indigo-600">{{ task.title }}</a>
-          <div class="mt-3 space-y-1 text-xs text-slate-600">
-            <div class="flex justify-between">
-              <span>Deadline</span>
-              <span class="font-medium {% if task.is_overdue %}text-red-600 font-semibold{% else %}text-slate-800{% endif %}">{{ task.deadline|date:"d M Y, H:i" }}{% if task.is_overdue %} (Overdue){% endif %}</span>
+
+          <a href="{% url 'tasks:task_detail' task.pk %}" class="block text-base font-bold text-slate-900 hover:text-indigo-600 leading-snug transition">
+            {{ task.title }}
+          </a>
+
+          <div class="space-y-2 text-xs text-slate-600">
+            <div class="flex flex-wrap items-center justify-between gap-1.5">
+              {% if task.status == 'DONE' or task.status == 'ARCHIVED' %}
+                <span class="px-2 py-0.5 rounded-full border font-semibold {{ task.status|status_badge_class }}">{{ task.get_status_display }}</span>
+              {% else %}
+                <span class="px-2 py-0.5 rounded-full border font-semibold {{ dl.badge_class }}">{{ dl.text }}</span>
+              {% endif %}
+              <span class="text-[11px] font-medium text-slate-500">{{ task.deadline|date:"d M Y, H:i" }}</span>
             </div>
-            <div class="flex justify-between"><span>Weight</span><span class="font-medium text-slate-800">{{ task.weight_percentage }}%</span></div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px]">
+              <div class="inline-flex items-center gap-1.5" title="Tingkat kesulitan: {{ diff.label }} ({{ task.difficulty }}/5)">
+                <span class="inline-flex items-center gap-0.5" aria-hidden="true">
+                  {% for opt in difficulty_options %}
+                    <span class="w-1.5 h-1.5 rounded-full {% if opt.level <= task.difficulty %}{{ diff.bar_color }}{% else %}bg-slate-200{% endif %}"></span>
+                  {% endfor %}
+                </span>
+                <span class="font-medium text-slate-700">{{ diff.label }}</span>
+              </div>
+              <div class="flex items-center gap-1.5 text-slate-500">
+                <span class="font-semibold text-slate-700">{{ task.estimated_minutes|human_duration }}</span>
+                <span aria-hidden="true">·</span>
+                {% if task.weight_percentage > 0 %}
+                  <span class="font-semibold text-indigo-700">Bobot {{ task.weight_percentage|format_weight }}</span>
+                {% else %}
+                  <span class="text-slate-500">Bobot belum diisi</span>
+                {% endif %}
+              </div>
+            </div>
           </div>
-          {% with pct=task.progress_percent %}
-          <div class="mt-4">
-            <div class="flex justify-between text-xs mb-1"><span class="text-slate-500">Progress</span><span class="font-semibold text-indigo-600">{{ pct }}%</span></div>
-            <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden"><div class="h-full bg-indigo-600 rounded-full transition-all duration-300" style="width: {{ pct }}%"></div></div>
+
+          <div class="pt-1">
+            <div class="flex items-center justify-between text-xs mb-1">
+              <span class="text-slate-500">
+                Progres{% if cp_stat.total > 0 %} <span class="text-slate-500 tabular-nums">· {{ cp_stat.done }}/{{ cp_stat.total }} langkah</span>{% endif %}
+              </span>
+              <span class="font-bold tabular-nums {% if cp_stat.percent == 100 %}text-emerald-600{% else %}text-indigo-600{% endif %}">{{ cp_stat.percent }}%</span>
+            </div>
+            <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+              <div class="h-full rounded-full transition-all duration-300 {% if cp_stat.percent == 100 %}bg-emerald-500{% else %}bg-indigo-600{% endif %}" style="width: {{ cp_stat.percent }}%"></div>
+            </div>
           </div>
-          {% endwith %}
         </div>
-        <div class="flex gap-2 pt-3 border-t border-slate-100 text-xs font-semibold">
-          <a href="{% url 'tasks:task_detail' task.pk %}" class="flex-1 text-center py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800">Detail</a>
-          <a href="{% url 'tasks:focus_mode' task.pk %}" class="flex-1 text-center py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700">Focus Mode</a>
+
+        <div class="flex items-center gap-2 pt-3 border-t border-slate-100 text-xs font-semibold">
+          <a href="{% url 'tasks:task_detail' task.pk %}" class="flex-1 text-center py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 transition">
+            Detail
+          </a>
+          <a href="{% url 'tasks:focus_mode' task.pk %}" class="flex-1 text-center py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition">
+            Mode Fokus
+          </a>
+          <form method="post" action="{% url 'tasks:task_quick_done' task.pk %}" class="shrink-0">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            {% if task.status == 'DONE' %}
+              <button type="submit" class="px-2.5 py-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 transition" title="Buka kembali tugas ini">
+                Buka Lagi
+              </button>
+            {% else %}
+              <button type="submit" class="px-2.5 py-2 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition" title="Tandai tugas selesai">
+                Selesai
+              </button>
+            {% endif %}
+          </form>
         </div>
       </article>
+      {% endwith %}
     {% endfor %}
   </div>
 {% else %}
   <div class="bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center">
-    <p class="text-slate-700 font-semibold">No tasks found.</p>
-    <a href="{% url 'tasks:task_create' %}" class="inline-block mt-3 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold">+ New Task</a>
+    {% if has_active_filters %}
+      <svg class="w-11 h-11 mx-auto text-slate-300 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/>
+      </svg>
+      <p class="text-base font-bold text-slate-800">Tidak ada tugas yang cocok dengan filter ini.</p>
+      <p class="text-sm text-slate-500 mt-1 max-w-md mx-auto">Coba ubah kata kunci pencarian atau reset filter untuk melihat semua tugas aktifmu.</p>
+      <a href="{% url 'tasks:task_list' %}" class="inline-block mt-4 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold transition">
+        Reset Filter
+      </a>
+    {% else %}
+      <svg class="w-11 h-11 mx-auto text-indigo-300 mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/>
+      </svg>
+      <p class="text-base font-bold text-slate-800">Belum ada tugas nih!</p>
+      <p class="text-sm text-slate-500 mt-1 max-w-md mx-auto">Catat tugas kuliahmu sekarang, pecah jadi checkpoint, dan mulai sesi fokus supaya tidak kebut semalam.</p>
+      <a href="{% url 'tasks:task_create' %}" class="inline-block mt-4 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-sm transition">
+        + Buat Tugas Pertama
+      </a>
+    {% endif %}
   </div>
 {% endif %}
 {% endblock %}

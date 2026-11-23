@@ -1,10 +1,10 @@
-<div class="rounded-xl border p-3.5 text-xs space-y-1.5 {% if tone == 'strict' %}bg-red-50 border-red-200 text-red-900{% elif tone == 'minimal' %}bg-slate-50 border-slate-200 text-slate-800{% else %}bg-emerald-50 border-emerald-200 text-emerald-900{% endif %}">
-  <div class="flex items-center justify-between gap-2">
-    <span class="font-bold uppercase tracking-wide">
-      Tone: {{ tone|default:"friendly"|title }}
+<div class="rounded-xl border p-4 text-xs space-y-2 atr-swap-enter {% if tone == 'strict' %}bg-rose-50 border-rose-200 text-rose-900{% elif tone == 'minimal' %}bg-slate-50 border-slate-200 text-slate-800{% else %}bg-emerald-50 border-emerald-200 text-emerald-900{% endif %}">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <span class="font-bold tracking-wide uppercase">
+      Gaya: {% if tone == 'strict' %}Tegas{% elif tone == 'minimal' %}Ringkas{% else %}Ramah{% endif %}
     </span>
-    <span class="px-2 py-0.5 rounded-full bg-white/80 text-[11px] font-semibold text-slate-700">
-      {% if source == "gemini" or source == "ai" %}AI Coaching{% else %}Deterministic Fallback{% endif %}
+    <span class="px-2.5 py-0.5 rounded-full bg-white/90 border border-black/5 text-[11px] font-semibold text-slate-700">
+      {% if source == "gemini" or source == "ai" %}AI Coaching{% else %}Mode Template{% endif %}
     </span>
   </div>
   <p class="text-sm font-medium leading-relaxed">{{ message }}</p>
