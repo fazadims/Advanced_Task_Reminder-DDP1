@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import IntegrityError, transaction
@@ -10,6 +12,8 @@ from django.utils import timezone
 from tasks.models import DailyDigestLog, Reminder, TelegramLink
 from tasks.services.digest import build_daily_digest
 from tasks.services.telegram_bot import send_telegram_digest
+
+logger = logging.getLogger(__name__)
 
 
 class Command(BaseCommand):
@@ -29,35 +33,46 @@ class Command(BaseCommand):
             default=False,
             help="Preview digest counts without saving DailyDigestLog/Reminder or sending Telegram.",
         )
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            default=False,
+            help="Bypass quiet-hours suppression when dispatching Telegram digests.",
+        )
 
     def handle(self, *args, **options) -> None:
         slot = options["slot"].upper()
         dry_run: bool = options["dry_run"]
+        force: bool = options.get("force", False)
         now = timezone.now()
         today = timezone.localdate(now)
 
         user_model = get_user_model()
         active_users = user_model.objects.filter(is_active=True).order_by("id")
 
-        verified_user_ids = set(
+        already_sent_user_ids = set(
+            DailyDigestLog.objects.filter(
+                digest_date=today,
+                slot=slot,
+            ).values_list("user_id", flat=True)
+        )
+        verified_chat_map: dict[int, int] = dict(
             TelegramLink.objects.filter(
                 is_verified=True,
                 chat_id__isnull=False,
-            ).values_list("user_id", flat=True)
+            ).values_list("user_id", "chat_id")
         )
 
         created_count = 0
         dry_run_count = 0
         telegram_sent = 0
+        telegram_failed = 0
+        quiet_deferred = 0
         skipped_existing = 0
         skipped_empty = 0
 
         for user in active_users:
-            if DailyDigestLog.objects.filter(
-                user=user,
-                digest_date=today,
-                slot=slot,
-            ).exists():
+            if user.pk in already_sent_user_ids:
                 skipped_existing += 1
                 continue
 
@@ -100,12 +115,32 @@ class Command(BaseCommand):
                 skipped_existing += 1
                 continue
 
+            already_sent_user_ids.add(user.pk)
             created_count += 1
 
-            if user.pk in verified_user_ids and send_telegram_digest(user, digest):
+            chat_id = verified_chat_map.get(user.pk)
+            if chat_id is None:
+                continue
+
+            if digest["is_quiet_hours"] and not force:
+                quiet_deferred += 1
+                continue
+
+            try:
+                sent_ok = send_telegram_digest(user, digest, chat_id=chat_id)
+            except Exception:
+                logger.exception(
+                    "Unexpected error sending Telegram daily digest to user #%s",
+                    user.pk,
+                )
+                sent_ok = False
+
+            if sent_ok:
                 digest_reminder.sent_at = timezone.now()
                 digest_reminder.save(update_fields=["sent_at"])
                 telegram_sent += 1
+            else:
+                telegram_failed += 1
 
         if dry_run:
             self.stdout.write(
@@ -120,6 +155,7 @@ class Command(BaseCommand):
                 self.style.SUCCESS(
                     f"send_daily_digest complete ({slot}, {today}): "
                     f"created={created_count}, telegram_sent={telegram_sent}, "
+                    f"telegram_failed={telegram_failed}, quiet_deferred={quiet_deferred}, "
                     f"skipped_existing={skipped_existing}, skipped_empty={skipped_empty}"
                 )
             )

@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import timedelta
 from typing import Any
@@ -16,12 +18,18 @@ from django.utils import timezone
 from tasks.models import Reminder, TelegramLink
 from tasks.services.ai_coaching import generate_coaching_message
 from tasks.services.digest import build_daily_digest
+from tasks.services.notifier import (
+    MAX_SNOOZE_COUNT,
+    complete_reminder_action,
+    snooze_reminder_action,
+)
 
 logger = logging.getLogger(__name__)
 
 TELEGRAM_TIMEOUT_SECONDS = 10
-MAX_SNOOZE_COUNT = 3
+MAX_TELEGRAM_MESSAGE_LENGTH = 4096
 SNOOZE_DURATION = timedelta(minutes=60)
+LOCAL_HOSTNAMES = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 ESCALATION_LABELS = {
     1: "🟢 Reminder (H-3d)",
     2: "🟡 Urgent (H-1d)",
@@ -29,8 +37,39 @@ ESCALATION_LABELS = {
 }
 
 
-def _telegram_api_post(method: str, payload: dict[str, Any]) -> dict[str, Any] | None:
-    """Posts a JSON payload to the Telegram Bot API. Returns None safely if token is unset or call fails."""
+def _truncate_telegram_text(text: str, max_len: int = MAX_TELEGRAM_MESSAGE_LENGTH) -> str:
+    """Ensures outgoing Telegram message text stays within Telegram's 4096-char limit."""
+    cleaned = str(text or "")
+    if len(cleaned) <= max_len:
+        return cleaned
+    suffix = "\n..."
+    if max_len <= len(suffix):
+        return cleaned[:max_len]
+    return f"{cleaned[: max_len - len(suffix)].rstrip()}{suffix}"
+
+
+def _is_public_telegram_button_url(url: str) -> bool:
+    """Returns True only for non-loopback http/https URLs accepted by Telegram inline URL buttons."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return False
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname or hostname in LOCAL_HOSTNAMES or hostname.endswith(".localhost"):
+        return False
+    return True
+
+
+def _telegram_api_post(
+    method: str,
+    payload: dict[str, Any],
+    *,
+    timeout: int = TELEGRAM_TIMEOUT_SECONDS,
+) -> dict[str, Any] | None:
+    """Posts a JSON payload to the Telegram Bot API.
+
+    Returns parsed response dict (including ok=False error payloads on HTTPError so callers
+    can inspect 403/409/429 error codes), or None if token is unset or transport fails.
+    """
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
         logger.warning(
@@ -49,23 +88,71 @@ def _telegram_api_post(method: str, payload: dict[str, Any]) -> dict[str, Any] |
     )
 
     try:
-        with urllib.request.urlopen(request, timeout=TELEGRAM_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8")
         parsed = json.loads(raw)
         if isinstance(parsed, dict):
             if not parsed.get("ok"):
-                logger.warning("Telegram API '%s' returned ok=False: %s", method, parsed)
+                logger.warning(
+                    "Telegram API '%s' returned ok=False (code=%s): %s",
+                    method,
+                    parsed.get("error_code"),
+                    parsed.get("description"),
+                )
             return parsed
         return None
+    except urllib.error.HTTPError as exc:
+        raw_err = ""
+        try:
+            raw_err = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            raw_err = ""
+
+        parsed_err: dict[str, Any] | None = None
+        try:
+            maybe_dict = json.loads(raw_err)
+            if isinstance(maybe_dict, dict):
+                parsed_err = maybe_dict
+        except (json.JSONDecodeError, ValueError):
+            parsed_err = None
+
+        description = (
+            str(parsed_err.get("description") or "")
+            if parsed_err is not None
+            else raw_err[:200]
+        )
+        safe_description = description.replace(token, "[REDACTED]")
+        logger.warning(
+            "Telegram API '%s' returned HTTP %s: %s",
+            method,
+            exc.code,
+            safe_description,
+        )
+        if parsed_err is not None:
+            result = dict(parsed_err)
+            result["ok"] = False
+            result.setdefault("error_code", exc.code)
+            result.setdefault("description", safe_description)
+            return result
+        return {
+            "ok": False,
+            "error_code": exc.code,
+            "description": safe_description,
+        }
     except (
         urllib.error.URLError,
-        urllib.error.HTTPError,
         TimeoutError,
         json.JSONDecodeError,
         OSError,
         ValueError,
     ) as exc:
-        logger.warning("Telegram API '%s' request failed: %s", method, exc)
+        reason_text = str(getattr(exc, "reason", exc)).replace(token, "[REDACTED]")
+        logger.warning(
+            "Telegram API '%s' request failed (%s): %s",
+            method,
+            type(exc).__name__,
+            reason_text,
+        )
         return None
 
 
@@ -86,11 +173,14 @@ def _format_local_dt(dt: Any) -> str:
     return local_dt.strftime("%d %b %Y %H:%M")
 
 
-def send_telegram_alert(reminder: Reminder) -> bool:
-    """Sends a formatted escalation alert with inline Done, Snooze 1h, and Focus Mode buttons."""
-    link = _get_verified_link_for_user(reminder.user)
-    if link is None:
-        return False
+def send_telegram_alert(reminder: Reminder, *, chat_id: int | None = None) -> bool:
+    """Sends a formatted escalation alert with inline Done, Snooze 1h, and optional Focus Mode button."""
+    target_chat_id = chat_id
+    if target_chat_id is None:
+        link = _get_verified_link_for_user(reminder.user)
+        if link is None:
+            return False
+        target_chat_id = link.chat_id
 
     badge = ESCALATION_LABELS.get(reminder.escalation_level, "🔔 Reminder")
     has_checkpoint = bool(reminder.checkpoint_id and reminder.checkpoint)
@@ -120,31 +210,40 @@ def send_telegram_alert(reminder: Reminder) -> bool:
     )
     focus_url = f"{base_url}/tasks/{reminder.task_id}/focus/"
 
+    inline_keyboard: list[list[dict[str, str]]] = [
+        [
+            {"text": "✅ Done", "callback_data": f"cb:done:{reminder.pk}"},
+            {"text": "⏰ Snooze 1h", "callback_data": f"cb:snooze60:{reminder.pk}"},
+        ]
+    ]
+    if _is_public_telegram_button_url(focus_url):
+        inline_keyboard.append([{"text": "🎯 Focus Mode", "url": focus_url}])
+    else:
+        lines.append(f"Focus Mode: {focus_url}")
+
     payload = {
-        "chat_id": link.chat_id,
-        "text": "\n".join(lines),
-        "reply_markup": {
-            "inline_keyboard": [
-                [
-                    {"text": "✅ Done", "callback_data": f"cb:done:{reminder.pk}"},
-                    {"text": "⏰ Snooze 1h", "callback_data": f"cb:snooze60:{reminder.pk}"},
-                ],
-                [
-                    {"text": "🎯 Focus Mode", "url": focus_url},
-                ],
-            ]
-        },
+        "chat_id": target_chat_id,
+        "text": _truncate_telegram_text("\n".join(lines)),
+        "reply_markup": {"inline_keyboard": inline_keyboard},
     }
 
     result = _telegram_api_post("sendMessage", payload)
     return bool(result and result.get("ok"))
 
 
-def send_telegram_digest(user: Any, digest: dict[str, Any]) -> bool:
+def send_telegram_digest(
+    user: Any,
+    digest: dict[str, Any],
+    *,
+    chat_id: int | None = None,
+) -> bool:
     """Sends a plain-text daily digest summary to the user's verified Telegram chat."""
-    link = _get_verified_link_for_user(user)
-    if link is None:
-        return False
+    target_chat_id = chat_id
+    if target_chat_id is None:
+        link = _get_verified_link_for_user(user)
+        if link is None:
+            return False
+        target_chat_id = link.chat_id
 
     summary_text = str(digest.get("summary_text") or "").strip()
     if not summary_text:
@@ -153,8 +252,8 @@ def send_telegram_digest(user: Any, digest: dict[str, Any]) -> bool:
     result = _telegram_api_post(
         "sendMessage",
         {
-            "chat_id": link.chat_id,
-            "text": summary_text,
+            "chat_id": target_chat_id,
+            "text": _truncate_telegram_text(summary_text),
         },
     )
     return bool(result and result.get("ok"))
@@ -168,10 +267,28 @@ def _answer_callback(callback_query_id: str | None, text: str) -> None:
         )
 
 
+def _clear_inline_keyboard(chat_id: int, message_id: Any) -> None:
+    """Clears stale inline keyboard buttons after a reminder is resolved."""
+    if isinstance(message_id, int) and not isinstance(message_id, bool):
+        _telegram_api_post(
+            "editMessageReplyMarkup",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "reply_markup": {"inline_keyboard": []},
+            },
+        )
+
+
 def _handle_callback_query(cb: dict[str, Any]) -> dict[str, Any]:
     callback_id = cb.get("id")
     raw_data = str(cb.get("data") or "").strip()
-    chat_id = ((cb.get("message") or {}).get("chat") or {}).get("id")
+    message_obj = cb.get("message")
+    chat_obj = message_obj.get("chat") if isinstance(message_obj, dict) else None
+    chat_id = chat_obj.get("id") if isinstance(chat_obj, dict) else None
+    message_id = message_obj.get("message_id") if isinstance(message_obj, dict) else None
+    from_obj = cb.get("from")
+    from_id = from_obj.get("id") if isinstance(from_obj, dict) else None
 
     parts = raw_data.split(":")
     if len(parts) != 3 or parts[0] != "cb":
@@ -194,105 +311,84 @@ def _handle_callback_query(cb: dict[str, Any]) -> dict[str, Any]:
         _answer_callback(callback_id, "Reminder tidak ditemukan.")
         return {"ok": False, "action": "reminder_not_found", "reminder_id": reminder_id}
 
-    # Verify chat ownership when chat_id is supplied in the callback payload.
-    if chat_id is not None:
-        owner_link = _get_verified_link_for_user(reminder.user)
-        if owner_link is not None and owner_link.chat_id != chat_id:
-            _answer_callback(callback_id, "Akses ditolak untuk reminder ini.")
-            return {"ok": False, "action": "unauthorized", "reminder_id": reminder_id}
+    # Fail-closed authorization: require verified TelegramLink matching chat_id (and from.id if present).
+    if not isinstance(chat_id, int) or isinstance(chat_id, bool):
+        _answer_callback(callback_id, "Akses ditolak untuk reminder ini.")
+        return {"ok": False, "action": "unauthorized", "reminder_id": reminder_id}
+
+    owner_link = _get_verified_link_for_user(reminder.user)
+    if owner_link is None or owner_link.chat_id != chat_id:
+        _answer_callback(callback_id, "Akses ditolak untuk reminder ini.")
+        return {"ok": False, "action": "unauthorized", "reminder_id": reminder_id}
+
+    if from_id is not None and (
+        not isinstance(from_id, int)
+        or isinstance(from_id, bool)
+        or owner_link.chat_id != from_id
+    ):
+        _answer_callback(callback_id, "Akses ditolak untuk reminder ini.")
+        return {"ok": False, "action": "unauthorized", "reminder_id": reminder_id}
 
     if action == "done":
-        now = timezone.now()
-        with transaction.atomic():
-            if reminder.checkpoint_id and reminder.checkpoint:
-                cp = reminder.checkpoint
-                if not cp.is_done:
-                    cp.is_done = True
-                    cp.completed_at = now
-                    cp.save(update_fields=["is_done", "completed_at"])
-                reminder.task.sync_status_from_checkpoints()
-                Reminder.objects.filter(
-                    checkpoint=cp,
-                    status__in=("PENDING", "SNOOZED"),
-                ).exclude(pk=reminder.pk).update(status="DONE")
-            else:
-                if reminder.task.checkpoints.count() == 0:
-                    reminder.task.status = "DONE"
-                    if reminder.task.completed_at is None:
-                        reminder.task.completed_at = now
-                    reminder.task.save(update_fields=["status", "completed_at", "updated_at"])
-                else:
-                    reminder.task.sync_status_from_checkpoints()
-
-            reminder.status = "DONE"
-            reminder.save(update_fields=["status"])
+        ok, res = complete_reminder_action(reminder.pk, user=reminder.user)
+        if not ok:
+            _answer_callback(callback_id, res.get("error", "Reminder tidak ditemukan."))
+            return {
+                "ok": False,
+                "action": "reminder_not_found",
+                "reminder_id": reminder_id,
+            }
 
         _answer_callback(callback_id, "✅ Ditandai selesai!")
+        _clear_inline_keyboard(chat_id, message_id)
         return {
             "ok": True,
             "action": "done",
-            "reminder_id": reminder.pk,
-            "task_id": reminder.task_id,
-            "checkpoint_id": reminder.checkpoint_id,
+            "reminder_id": res["reminder_id"],
+            "task_id": res["task_id"],
+            "checkpoint_id": res["checkpoint_id"],
         }
 
     if action == "snooze60":
-        now = timezone.now()
-        target_deadline = (
-            reminder.checkpoint.target_deadline
-            if reminder.checkpoint_id and reminder.checkpoint
-            else reminder.task.deadline
-        )
+        ok, res = snooze_reminder_action(reminder.pk, minutes=60, user=reminder.user)
+        if not ok:
+            reason = res.get("reason", "snooze_rejected")
+            if reason == "already_closed":
+                _answer_callback(callback_id, "Reminder sudah selesai atau ditutup.")
+                _clear_inline_keyboard(chat_id, message_id)
+            elif reason == "max_snooze_reached":
+                _answer_callback(
+                    callback_id,
+                    f"Snooze ditolak: batas maksimal ({MAX_SNOOZE_COUNT}x) sudah tercapai.",
+                )
+            elif reason == "deadline_too_close":
+                _answer_callback(
+                    callback_id,
+                    "Snooze 1 jam ditolak: deadline terlalu dekat atau sudah lewat!",
+                )
+            else:
+                _answer_callback(callback_id, res.get("error", "Snooze ditolak."))
 
-        if reminder.snooze_count >= MAX_SNOOZE_COUNT:
-            _answer_callback(
-                callback_id,
-                f"Snooze ditolak: batas maksimal ({MAX_SNOOZE_COUNT}x) sudah tercapai.",
-            )
-            return {
+            out: dict[str, Any] = {
                 "ok": False,
                 "action": "snooze_rejected",
-                "reason": "max_snooze_reached",
-                "reminder_id": reminder.pk,
-                "snooze_count": reminder.snooze_count,
+                "reason": reason,
+                "reminder_id": res.get("reminder_id", reminder_id),
             }
-
-        snoozed_until = now + SNOOZE_DURATION
-        if snoozed_until >= target_deadline:
-            _answer_callback(
-                callback_id,
-                "Snooze 1 jam ditolak: deadline terlalu dekat atau sudah lewat!",
-            )
-            return {
-                "ok": False,
-                "action": "snooze_rejected",
-                "reason": "deadline_too_close",
-                "reminder_id": reminder.pk,
-            }
-
-        reminder.status = "SNOOZED"
-        reminder.snoozed_until = snoozed_until
-        reminder.snooze_count += 1
-        update_fields = ["status", "snoozed_until", "snooze_count"]
-        if reminder.snooze_count >= 2:
-            if reminder.escalation_level < 3:
-                reminder.escalation_level = 3
-                update_fields.append("escalation_level")
-            if reminder.message:
-                reminder.message = ""
-                update_fields.append("message")
-        reminder.save(update_fields=update_fields)
+            if "snooze_count" in res:
+                out["snooze_count"] = res["snooze_count"]
+            return out
 
         _answer_callback(
             callback_id,
-            f"⏰ Di-snooze 1 jam (snooze ke-{reminder.snooze_count}).",
+            f"⏰ Di-snooze 1 jam (snooze ke-{res['snooze_count']}).",
         )
         return {
             "ok": True,
             "action": "snooze60",
-            "reminder_id": reminder.pk,
-            "snooze_count": reminder.snooze_count,
-            "snoozed_until": reminder.snoozed_until.isoformat(),
+            "reminder_id": res["reminder_id"],
+            "snooze_count": res["snooze_count"],
+            "snoozed_until": res["snoozed_until"],
         }
 
     _answer_callback(callback_id, "Aksi tidak dikenali.")
@@ -300,9 +396,15 @@ def _handle_callback_query(cb: dict[str, Any]) -> dict[str, Any]:
 
 
 def _handle_message(message: dict[str, Any]) -> dict[str, Any]:
-    chat_id = (message.get("chat") or {}).get("id")
+    chat_obj = message.get("chat")
+    chat_id = chat_obj.get("id") if isinstance(chat_obj, dict) else None
+    chat_type = (
+        str(chat_obj.get("type") or "").strip().lower()
+        if isinstance(chat_obj, dict)
+        else ""
+    )
     text = str(message.get("text") or "").strip()
-    if chat_id is None or not text:
+    if not isinstance(chat_id, int) or isinstance(chat_id, bool) or not text:
         return {"ok": True, "action": "ignored"}
 
     parts = text.split(maxsplit=1)
@@ -323,34 +425,86 @@ def _handle_message(message: dict[str, Any]) -> dict[str, Any]:
             )
             return {"ok": False, "action": "start_missing_token", "chat_id": chat_id}
 
-        link = TelegramLink.objects.select_related("user").filter(link_token=token).first()
-        if link is None:
+        if (chat_type and chat_type != "private") or chat_id < 0:
             _telegram_api_post(
                 "sendMessage",
                 {
                     "chat_id": chat_id,
-                    "text": "Token tautan tidak valid. Silakan buat token baru di aplikasi ATR.",
+                    "text": (
+                        "Demi keamanan, tautkan akun ATR hanya melalui chat pribadi "
+                        "langsung dengan bot ini, bukan di grup atau channel."
+                    ),
+                },
+            )
+            return {"ok": False, "action": "start_non_private_chat", "chat_id": chat_id}
+
+        now = timezone.now()
+        linked_user_id: int | None = None
+        linked_username = ""
+        link_outcome = "invalid"
+
+        with transaction.atomic():
+            link = (
+                TelegramLink.objects.select_for_update()
+                .select_related("user")
+                .filter(link_token=token, is_verified=False)
+                .first()
+            )
+            if link is None:
+                link_outcome = "invalid"
+            elif link.is_token_expired(now=now):
+                link_outcome = "expired"
+            else:
+                link_outcome = "linked"
+                linked_user_id = link.user_id
+                linked_username = link.user.username
+                # Release chat_id if previously attached to another user record.
+                TelegramLink.objects.filter(chat_id=chat_id).exclude(pk=link.pk).update(
+                    chat_id=None,
+                    is_verified=False,
+                )
+                link.chat_id = chat_id
+                link.is_verified = True
+                link.linked_at = now
+                # Immediately rotate the one-time token so it cannot be replayed.
+                link.link_token = secrets.token_urlsafe(24)
+                link.token_created_at = now
+                link.save(
+                    update_fields=[
+                        "chat_id",
+                        "is_verified",
+                        "linked_at",
+                        "link_token",
+                        "token_created_at",
+                    ]
+                )
+
+        if link_outcome == "invalid":
+            _telegram_api_post(
+                "sendMessage",
+                {
+                    "chat_id": chat_id,
+                    "text": "Token tautan tidak valid atau sudah digunakan. Silakan buat token baru di aplikasi ATR.",
                 },
             )
             return {"ok": False, "action": "start_invalid_token", "chat_id": chat_id}
 
-        with transaction.atomic():
-            # Release chat_id if previously attached to another user record.
-            TelegramLink.objects.filter(chat_id=chat_id).exclude(pk=link.pk).update(
-                chat_id=None,
-                is_verified=False,
+        if link_outcome == "expired":
+            _telegram_api_post(
+                "sendMessage",
+                {
+                    "chat_id": chat_id,
+                    "text": "Token tautan sudah kedaluwarsa. Silakan buat token baru di aplikasi ATR.",
+                },
             )
-            link.chat_id = chat_id
-            link.is_verified = True
-            link.linked_at = timezone.now()
-            link.save(update_fields=["chat_id", "is_verified", "linked_at"])
+            return {"ok": False, "action": "start_expired_token", "chat_id": chat_id}
 
         _telegram_api_post(
             "sendMessage",
             {
                 "chat_id": chat_id,
                 "text": (
-                    f"✅ Selamat datang, {link.user.username}! Akun Telegram kamu sudah "
+                    f"✅ Selamat datang, {linked_username}! Akun Telegram kamu sudah "
                     "terhubung ke ATR. Ketik /today untuk melihat ringkasan tugas hari ini."
                 ),
             },
@@ -358,7 +512,7 @@ def _handle_message(message: dict[str, Any]) -> dict[str, Any]:
         return {
             "ok": True,
             "action": "linked",
-            "user_id": link.user_id,
+            "user_id": linked_user_id,
             "chat_id": chat_id,
         }
 
@@ -384,7 +538,7 @@ def _handle_message(message: dict[str, Any]) -> dict[str, Any]:
         local_now = timezone.localtime(timezone.now())
         slot = "MORNING" if local_now.hour < 15 else "EVENING"
         digest = build_daily_digest(link.user, slot=slot)
-        sent = send_telegram_digest(link.user, digest)
+        sent = send_telegram_digest(link.user, digest, chat_id=chat_id)
         return {
             "ok": True,
             "action": "today",

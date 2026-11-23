@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from typing import Any
 
+from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.utils import timezone
 
 from tasks.models import Checkpoint, Task
@@ -14,6 +16,14 @@ DEFAULT_QUIET_END = time(7, 0)
 DEFAULT_MAX_ALERTS_PER_DAY = 5
 MAX_DIGEST_ITEMS = 5
 UPCOMING_WINDOW = timedelta(hours=48)
+
+
+def _ensure_aware(dt: datetime | None) -> datetime:
+    if dt is None:
+        return timezone.now()
+    if settings.USE_TZ and timezone.is_naive(dt):
+        return timezone.make_aware(dt, timezone.get_current_timezone())
+    return dt
 
 
 def _parse_time_value(value: Any, fallback: time) -> time:
@@ -44,12 +54,12 @@ def _is_within_quiet_hours(local_time: time, start: time, end: time) -> bool:
 
 def get_user_digest_preferences(user: Any, now: datetime | None = None) -> dict[str, Any]:
     """Safely inspects optional user.preference for quiet hours and max_alerts_per_day."""
-    current_now = now or timezone.now()
+    current_now = _ensure_aware(now)
     local_now = timezone.localtime(current_now) if timezone.is_aware(current_now) else current_now
 
     try:
         pref = getattr(user, "preference", None)
-    except Exception:
+    except (AttributeError, ObjectDoesNotExist):
         pref = None
 
     raw_start = None
@@ -94,7 +104,7 @@ def build_daily_digest(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     """Builds a prioritized, anti-spam Morning or Evening digest capped at top 5 items."""
-    current_now = now or timezone.now()
+    current_now = _ensure_aware(now)
     local_now = timezone.localtime(current_now) if timezone.is_aware(current_now) else current_now
     digest_date = local_now.date()
 
@@ -115,11 +125,11 @@ def build_daily_digest(
         .order_by("deadline", "-priority_score")
     )
 
+    # Include both past-due and due-today incomplete checkpoints so overdue milestones aren't dropped.
     today_checkpoints = list(
         Checkpoint.objects.filter(
             task__user=user,
             is_done=False,
-            target_deadline__gte=day_start,
             target_deadline__lt=day_end,
         )
         .exclude(task__status__in=("DONE", "ARCHIVED"))
@@ -139,6 +149,7 @@ def build_daily_digest(
     )
 
     unified: list[dict[str, Any]] = []
+    checkpoint_task_ids = {cp.task_id for cp in today_checkpoints}
 
     for task in overdue_tasks:
         unified.append(
@@ -152,6 +163,7 @@ def build_daily_digest(
                 "deadline": task.deadline,
                 "is_overdue": True,
                 "priority_level": task.priority_level,
+                "priority_score": float(task.priority_score or 0.0),
                 "task": task,
                 "checkpoint": None,
             }
@@ -169,12 +181,16 @@ def build_daily_digest(
                 "deadline": cp.target_deadline,
                 "is_overdue": cp.target_deadline < current_now,
                 "priority_level": cp.task.priority_level,
+                "priority_score": float(cp.task.priority_score or 0.0),
                 "task": cp.task,
                 "checkpoint": cp,
             }
         )
 
     for task in upcoming_48h_tasks:
+        # Avoid consuming two slots in the capped unified list when the task already has active checkpoints shown.
+        if task.pk in checkpoint_task_ids:
+            continue
         unified.append(
             {
                 "kind": "upcoming_48h_task",
@@ -186,13 +202,20 @@ def build_daily_digest(
                 "deadline": task.deadline,
                 "is_overdue": False,
                 "priority_level": task.priority_level,
+                "priority_score": float(task.priority_score or 0.0),
                 "task": task,
                 "checkpoint": None,
             }
         )
 
-    # Sort by (is_overdue desc, deadline asc)
-    unified.sort(key=lambda item: (not item["is_overdue"], item["deadline"]))
+    # Sort by (is_overdue desc, deadline asc, priority_score desc)
+    unified.sort(
+        key=lambda item: (
+            not item["is_overdue"],
+            item["deadline"],
+            -item["priority_score"],
+        )
+    )
 
     total_items = len(unified)
     cap = min(MAX_DIGEST_ITEMS, prefs["max_alerts_per_day"])
