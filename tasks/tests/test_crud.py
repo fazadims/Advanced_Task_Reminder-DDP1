@@ -4,17 +4,17 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from brp.models import Course
 from tasks.models import Checkpoint, Task
+from tasks.tests.base import FastTestCase
 
 User = get_user_model()
 
 
-class TaskCRUDAndCheckpointTests(TestCase):
+class TaskCRUDAndCheckpointTests(FastTestCase):
     """Covers F3.1: auth redirects, filtering, CRUD, archive, isolation, and HTMX toggle."""
 
     def setUp(self):

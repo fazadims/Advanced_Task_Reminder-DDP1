@@ -9,7 +9,6 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -20,6 +19,7 @@ from tasks.services.ai_coaching import (
     generate_coaching_message,
 )
 from tasks.services.notifier import evaluate_due_reminders
+from tasks.tests.base import FastTestCase
 
 User = get_user_model()
 
@@ -43,7 +43,7 @@ def _mock_gemini_response(text: str) -> MagicMock:
     return mock_cm
 
 
-class AdaptiveCoachingTests(TestCase):
+class AdaptiveCoachingTests(FastTestCase):
     """Covers 3x3 fallback templates, anti-snooze templates, Gemini mocking, caching, and preview."""
 
     def setUp(self) -> None:
@@ -164,8 +164,10 @@ class AdaptiveCoachingTests(TestCase):
             escalation_level=2,
             snooze_count=0,
         )
-        msg, source = generate_coaching_message(reminder, user_tone="strict", now=self.now)
+        with self.assertLogs("tasks.services.ai_coaching", level="WARNING") as cm:
+            msg, source = generate_coaching_message(reminder, user_tone="strict", now=self.now)
 
+        self.assertIn("fallback", "\n".join(cm.output).lower())
         self.assertEqual(source, "fallback")
         self.assertGreater(len(msg.strip()), 0)
         self.assertLessEqual(len(msg), 200)

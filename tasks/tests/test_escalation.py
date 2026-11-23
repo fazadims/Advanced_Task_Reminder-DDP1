@@ -9,16 +9,16 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import TestCase
 from django.utils import timezone
 
 from tasks.models import Checkpoint, Reminder, Task, TelegramLink
 from tasks.services.notifier import evaluate_due_reminders, sync_reminders_for_task
+from tasks.tests.base import FastTestCase
 
 User = get_user_model()
 
 
-class ReminderEscalationTests(TestCase):
+class ReminderEscalationTests(FastTestCase):
     """Covers sync_reminders_for_task, evaluate_due_reminders, and process_reminders command."""
 
     def setUp(self) -> None:

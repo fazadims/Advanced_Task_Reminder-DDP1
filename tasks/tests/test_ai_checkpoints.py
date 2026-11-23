@@ -6,13 +6,13 @@ from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from brp.models import Course
 from tasks.models import Checkpoint, Task
 from tasks.services.ai_checkpoints import suggest_checkpoints
+from tasks.tests.base import FastTestCase
 
 User = get_user_model()
 
@@ -27,7 +27,7 @@ def _mock_urlopen_response(payload_bytes: bytes) -> MagicMock:
     return cm
 
 
-class AICheckpointSuggestionTests(TestCase):
+class AICheckpointSuggestionTests(FastTestCase):
     """Covers F3.4 Gemini service, fallback paths, preview view, and selective apply."""
 
     def setUp(self):
@@ -121,7 +121,11 @@ class AICheckpointSuggestionTests(TestCase):
         with patch.dict(os.environ, {"GEMINI_API_KEY": "fake-gemini-key"}):
             # 1. Simulated TimeoutError
             with patch("urllib.request.urlopen", side_effect=TimeoutError("request timed out")):
-                resp_timeout = self.client.post(preview_url, HTTP_HX_REQUEST="true")
+                with self.assertLogs("tasks.services.ai_checkpoints", level="WARNING") as cm:
+                    resp_timeout = self.client.post(preview_url, HTTP_HX_REQUEST="true")
+                log_output = "\n".join(cm.output)
+                self.assertIn("fallback", log_output.lower())
+                self.assertNotIn("fake-gemini-key", log_output)
                 self.assertEqual(resp_timeout.status_code, 200)
                 self.assertEqual(resp_timeout.context["source"], "fallback")
                 self.assertTrue(len(resp_timeout.context["suggestions"]) >= 3)
@@ -130,7 +134,11 @@ class AICheckpointSuggestionTests(TestCase):
             # 2. Malformed HTTP body JSON
             malformed_body = _mock_urlopen_response(b"{not-valid-json!!!")
             with patch("urllib.request.urlopen", return_value=malformed_body):
-                resp_bad_body = self.client.post(preview_url, HTTP_HX_REQUEST="true")
+                with self.assertLogs("tasks.services.ai_checkpoints", level="WARNING") as cm:
+                    resp_bad_body = self.client.post(preview_url, HTTP_HX_REQUEST="true")
+                log_output = "\n".join(cm.output)
+                self.assertIn("fallback", log_output.lower())
+                self.assertNotIn("fake-gemini-key", log_output)
                 self.assertEqual(resp_bad_body.status_code, 200)
                 self.assertEqual(resp_bad_body.context["source"], "fallback")
                 self.assertIn("Smart Template Fallback", resp_bad_body.content.decode())
@@ -141,7 +149,11 @@ class AICheckpointSuggestionTests(TestCase):
             }
             malformed_inner = _mock_urlopen_response(json.dumps(bad_inner).encode("utf-8"))
             with patch("urllib.request.urlopen", return_value=malformed_inner):
-                resp_bad_inner = self.client.post(preview_url, HTTP_HX_REQUEST="true")
+                with self.assertLogs("tasks.services.ai_checkpoints", level="WARNING") as cm:
+                    resp_bad_inner = self.client.post(preview_url, HTTP_HX_REQUEST="true")
+                log_output = "\n".join(cm.output)
+                self.assertIn("fallback", log_output.lower())
+                self.assertNotIn("fake-gemini-key", log_output)
                 self.assertEqual(resp_bad_inner.status_code, 200)
                 self.assertEqual(resp_bad_inner.context["source"], "fallback")
                 self.assertIn("Smart Template Fallback", resp_bad_inner.content.decode())

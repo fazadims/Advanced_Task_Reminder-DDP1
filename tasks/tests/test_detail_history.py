@@ -4,17 +4,17 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from brp.models import Course
 from tasks.models import Checkpoint, FocusSession, Reminder, Task
+from tasks.tests.base import FastTestCase
 
 User = get_user_model()
 
 
-class TaskDetailAndHistoryTests(TestCase):
+class TaskDetailAndHistoryTests(FastTestCase):
     """Covers F6.2 task detail rendering/isolation and history filtering, pagination, & variance badges."""
 
     def setUp(self):
@@ -255,10 +255,36 @@ class TaskDetailAndHistoryTests(TestCase):
             completed_at=self.now - timedelta(hours=4),
         )
 
+        # On-time task (75 est vs 75 actual -> Tepat waktu)
+        Task.objects.create(
+            user=self.user_a,
+            course=None,
+            title="Exact Estimate Quiz Prep",
+            category="QUIZ",
+            deadline=self.now - timedelta(days=3),
+            estimated_minutes=75,
+            actual_minutes=75,
+            status="DONE",
+            completed_at=self.now - timedelta(hours=6),
+        )
+
+        # Untracked task (45 est vs 0 actual -> Belum dilacak)
+        Task.objects.create(
+            user=self.user_a,
+            course=None,
+            title="Untracked Reading Summary",
+            category="OTHER",
+            deadline=self.now - timedelta(days=4),
+            estimated_minutes=45,
+            actual_minutes=0,
+            status="DONE",
+            completed_at=self.now - timedelta(hours=8),
+        )
+
         self.client.force_login(self.user_a)
         history_url = reverse("tasks:task_history")
 
-        # Unfiltered shows both badges
+        # Unfiltered shows all four variance badges
         resp_all = self.client.get(history_url)
         self.assertEqual(resp_all.status_code, 200)
         html_all = resp_all.content.decode()
@@ -266,6 +292,10 @@ class TaskDetailAndHistoryTests(TestCase):
         self.assertIn("Lebih cepat 30 mnt", html_all)
         self.assertIn("Challenging Proof Problem Set", html_all)
         self.assertIn("Lebih lama 35 mnt", html_all)
+        self.assertIn("Exact Estimate Quiz Prep", html_all)
+        self.assertIn("Tepat waktu", html_all)
+        self.assertIn("Untracked Reading Summary", html_all)
+        self.assertIn("Belum dilacak", html_all)
 
         # Filtered by course_ddp returns only faster_task
         resp_ddp = self.client.get(history_url, {"course": self.course_ddp.pk})

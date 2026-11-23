@@ -4,17 +4,17 @@ import json
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escape
 
 from tasks.models import Checkpoint, FocusSession, Task
+from tasks.tests.base import FastTestCase
 
 User = get_user_model()
 
 
-class FocusModeAndSessionTests(TestCase):
+class FocusModeAndSessionTests(FastTestCase):
     """Covers F3.3 focus mode page, start/finish endpoints, completion sync, and isolation."""
 
     def setUp(self):

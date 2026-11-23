@@ -3,17 +3,17 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from tasks.models import Checkpoint, Task
+from tasks.models import Checkpoint, FocusSession, Task
 from tasks.services.checkpoint_gen import generate_checkpoints_for_task
+from tasks.tests.base import FastTestCase
 
 User = get_user_model()
 
 
-class CheckpointGeneratorTests(TestCase):
+class CheckpointGeneratorTests(FastTestCase):
     """Covers F3.2 checkpoint generation rules, edge cases, overwrite, and HTMX view."""
 
     def setUp(self):
@@ -54,7 +54,13 @@ class CheckpointGeneratorTests(TestCase):
             self.assertLess(cp.target_deadline, task.deadline)
             self.assertGreater(cp.target_deadline, self.now)
             self.assertFalse(cp.is_ai_generated)
-            self.assertEqual(cp.estimated_minutes, 60)
+            self.assertGreaterEqual(cp.estimated_minutes, 5)
+            self.assertLessEqual(cp.estimated_minutes, 600)
+
+        # Proportional phase effort weights preserve total estimated_minutes with heavier DRAFT
+        self.assertEqual(sum(cp.estimated_minutes for cp in checkpoints), 240)
+        by_phase = {cp.phase: cp for cp in checkpoints}
+        self.assertGreater(by_phase["DRAFT"].estimated_minutes, by_phase["SUBMIT"].estimated_minutes)
 
         # Strictly chronologically sorted
         for prev_cp, next_cp in zip(checkpoints, checkpoints[1:]):
@@ -141,7 +147,11 @@ class CheckpointGeneratorTests(TestCase):
 
         new_cps = generate_checkpoints_for_task(task, overwrite=True, now=self.now)
 
-        self.assertEqual(len(new_cps), 3)
+        # RESEARCH was already completed, so only remaining LAB phases (DRAFT, SUBMIT) are generated
+        self.assertEqual(len(new_cps), 2)
+        self.assertEqual([cp.phase for cp in new_cps], ["DRAFT", "SUBMIT"])
+        self.assertNotIn("RESEARCH", [cp.phase for cp in new_cps])
+        self.assertEqual(task.checkpoints.filter(phase="RESEARCH").count(), 1)
         # Completed checkpoint must still exist untouched
         self.assertTrue(Checkpoint.objects.filter(pk=done_cp.pk, is_done=True).exists())
         # Old incomplete checkpoint must be deleted
@@ -149,7 +159,60 @@ class CheckpointGeneratorTests(TestCase):
         # New checkpoints are ordered strictly after the preserved checkpoint
         for cp in new_cps:
             self.assertGreater(cp.order, done_cp.order)
+        self.assertEqual(task.checkpoints.count(), 3)
+
+    def test_sub_15_minute_future_deadline_places_checkpoints_in_future(self):
+        task = self._make_task(category="TP", delta=timedelta(minutes=10), estimated_minutes=30)
+        created = generate_checkpoints_for_task(task, now=self.now)
+
+        self.assertEqual(len(created), 4)
+        for cp in created:
+            self.assertGreater(cp.target_deadline, self.now)
+            self.assertLess(cp.target_deadline, task.deadline)
+
+        for prev_cp, next_cp in zip(created, created[1:]):
+            self.assertLess(prev_cp.target_deadline, next_cp.target_deadline)
+
+    def test_overwrite_true_preserves_checkpoint_with_running_focus_session(self):
+        task = self._make_task(category="TP", delta=timedelta(days=5), estimated_minutes=200)
+        running_cp = Checkpoint.objects.create(
+            task=task,
+            title="Active Focus Draft",
+            phase="DRAFT",
+            target_deadline=self.now + timedelta(days=2),
+            estimated_minutes=60,
+            is_done=False,
+            order=1,
+        )
+        stale_cp = Checkpoint.objects.create(
+            task=task,
+            title="Stale Review Step",
+            phase="REVIEW",
+            target_deadline=self.now + timedelta(days=3),
+            estimated_minutes=40,
+            is_done=False,
+            order=2,
+        )
+        FocusSession.objects.create(
+            user=self.user,
+            task=task,
+            checkpoint=running_cp,
+            mode="POMODORO_25_5",
+            planned_minutes=25,
+            status="RUNNING",
+        )
+
+        new_cps = generate_checkpoints_for_task(task, overwrite=True, now=self.now)
+
+        # Running focus checkpoint is preserved and its DRAFT phase is not duplicated
+        self.assertTrue(Checkpoint.objects.filter(pk=running_cp.pk, is_done=False).exists())
+        self.assertFalse(Checkpoint.objects.filter(pk=stale_cp.pk).exists())
+        self.assertEqual([cp.phase for cp in new_cps], ["RESEARCH", "REVIEW", "SUBMIT"])
+        self.assertNotIn("DRAFT", [cp.phase for cp in new_cps])
+        self.assertEqual(task.checkpoints.filter(phase="DRAFT").count(), 1)
         self.assertEqual(task.checkpoints.count(), 4)
+        for cp in new_cps:
+            self.assertGreater(cp.order, running_cp.order)
 
     def test_htmx_regenerate_checkpoints_view_preserves_done_and_updates_progress(self):
         task = self._make_task(category="TP", delta=timedelta(days=7))
@@ -178,17 +241,21 @@ class CheckpointGeneratorTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(Checkpoint.objects.filter(pk=done_cp.pk).exists())
         self.assertFalse(Checkpoint.objects.filter(pk=stale_cp.pk).exists())
-        # 1 preserved done checkpoint + 4 regenerated TP checkpoints = 5 total (20% progress)
-        self.assertEqual(task.checkpoints.count(), 5)
+        # 1 preserved done RESEARCH + 3 remaining TP phases (DRAFT, REVIEW, SUBMIT) = 4 total (25% progress)
+        self.assertEqual(task.checkpoints.count(), 4)
+        self.assertEqual(
+            list(task.checkpoints.values_list("phase", flat=True)),
+            ["RESEARCH", "DRAFT", "REVIEW", "SUBMIT"],
+        )
         task.refresh_from_db()
         self.assertEqual(task.status, "IN_PROGRESS")
-        self.assertEqual(task.progress_percent(), 20)
+        self.assertEqual(task.progress_percent(), 25)
 
         html = resp.content.decode()
         self.assertIn('id="checkpoint-list"', html)
         self.assertIn("Already Finished Milestone", html)
         self.assertIn('hx-swap-oob="true"', html)
-        self.assertIn("20%", html)
+        self.assertIn("25%", html)
 
     def test_regenerate_checkpoints_cross_user_returns_404(self):
         task = self._make_task(category="LAB", delta=timedelta(days=3))

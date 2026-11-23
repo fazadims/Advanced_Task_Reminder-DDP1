@@ -9,17 +9,17 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from tasks.models import Checkpoint, DailyDigestLog, Reminder, Task
 from tasks.services.digest import build_daily_digest
+from tasks.tests.base import FastTestCase
 
 User = get_user_model()
 
 
-class DailyDigestTests(TestCase):
+class DailyDigestTests(FastTestCase):
     """Covers build_daily_digest sorting/capping, send_daily_digest uniqueness/dry-run, and web view."""
 
     def setUp(self) -> None:

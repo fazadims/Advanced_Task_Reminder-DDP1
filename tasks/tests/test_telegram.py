@@ -10,12 +10,12 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
 from tasks.models import Checkpoint, Reminder, Task, TelegramLink
 from tasks.services.telegram_bot import handle_telegram_update, send_telegram_alert
+from tasks.tests.base import FastTestCase
 
 User = get_user_model()
 
@@ -30,7 +30,7 @@ def _mock_urlopen_response(payload: dict) -> MagicMock:
     return mock_cm
 
 
-class TelegramIntegrationTests(TestCase):
+class TelegramIntegrationTests(FastTestCase):
     """Covers TelegramLink token flow, safe unset-token behavior, bot updates, and webhook auth."""
 
     def setUp(self) -> None:
@@ -105,8 +105,10 @@ class TelegramIntegrationTests(TestCase):
         )
 
         with patch("tasks.services.telegram_bot.urllib.request.urlopen") as mock_urlopen:
-            sent = send_telegram_alert(reminder)
+            with self.assertLogs("tasks.services.telegram_bot", level="WARNING") as cm:
+                sent = send_telegram_alert(reminder)
 
+        self.assertIn("TELEGRAM_BOT_TOKEN", "\n".join(cm.output))
         self.assertFalse(sent)
         mock_urlopen.assert_not_called()
 
