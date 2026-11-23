@@ -1,0 +1,52 @@
+{% extends "analytics/base.html" %}
+{% block title %}Fokus Hari Ini{% endblock %}
+{% block content %}
+<h1>Fokus Hari Ini</h1>
+<p>
+  <span class="stat">Total estimasi: <b>{{ total_hours }} jam</b></span>
+  <span class="stat">Tugas aktif: <b>{{ rows|length }}</b></span>
+  <span class="stat">Sync terakhir: <b>belum tersambung</b></span>
+</p>
+
+{% for c in crunch %}
+  <div class="warn">⚠️ Minggu padat: minggu ke-{{ c.week }} {{ c.year }} ({{ c.hours }} jam deadline).</div>
+{% endfor %}
+
+<h2>Prioritas tugas</h2>
+<table>
+  <tr><th></th><th>Tugas</th><th>Matkul</th><th>Deadline</th><th>Est.</th><th>Alasan</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td>{{ r.icon }}</td>
+    <td><a href="{% url 'analytics:task_detail' r.task.pk %}">{{ r.task.title }}</a></td>
+    <td>{{ r.task.course.name }}</td>
+    <td>{{ r.task.deadline|date:"d M H:i" }}</td>
+    <td>{{ r.hours }} j</td>
+    <td>{{ r.reasons|join:", " }} (skor {{ r.score }})</td>
+  </tr>
+  {% empty %}
+  <tr><td colspan="6">Belum ada tugas. Jalankan <code>python manage.py seed_demo</code>.</td></tr>
+  {% endfor %}
+</table>
+
+<h2>Checkpoint hari ini</h2>
+<ul>
+  {% for c in checkpoints %}<li>{{ c.title }} <small>({{ c.task.title }})</small></li>
+  {% empty %}<li>Tidak ada checkpoint hari ini.</li>{% endfor %}
+</ul>
+
+<h2>Workload 14 hari</h2>
+<canvas id="workload" height="90"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{{ labels|json_script:"wl-labels" }}
+{{ hours|json_script:"wl-hours" }}
+<script>
+  new Chart(document.getElementById("workload"), {
+    type: "bar",
+    data: {
+      labels: JSON.parse(document.getElementById("wl-labels").textContent),
+      datasets: [{ label: "Jam kerja", data: JSON.parse(document.getElementById("wl-hours").textContent) }]
+    }
+  });
+</script>
+{% endblock %}

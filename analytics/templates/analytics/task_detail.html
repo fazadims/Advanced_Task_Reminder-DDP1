@@ -1,0 +1,17 @@
+{% extends "analytics/base.html" %}
+{% block title %}{{ task.title }}{% endblock %}
+{% block content %}
+<p><a href="{% url 'analytics:dashboard' %}">← Dashboard</a></p>
+<h1>{{ icon }} {{ task.title }}</h1>
+<p>{{ task.course.name }} · {{ task.category }} · bobot {{ task.weight }}% · deadline {{ task.deadline|date:"d M Y H:i" }}</p>
+<p>Estimasi: <b>{{ hours }} jam</b> · Skor prioritas: <b>{{ score }}</b></p>
+<p>Alasan: {{ reasons|join:", " }}</p>
+
+<h2>Progres ({{ progress }}%)</h2>
+<div class="bar"><span style="width: {{ progress }}%"></span></div>
+<ul>
+  {% for c in checkpoints %}
+  <li>{% if c.done %}✅{% else %}⬜{% endif %} {{ c.title }} <small>({{ c.due_date|date:"d M" }})</small></li>
+  {% empty %}<li>Belum ada checkpoint.</li>{% endfor %}
+</ul>
+{% endblock %}
