@@ -306,7 +306,7 @@
     <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-xs font-bold text-slate-900 uppercase tracking-wider">Sesi Fokus Terbaru</h2>
-        <a href="{% url 'tasks:focus_mode' task.pk %}" class="text-xs text-indigo-600 hover:underline font-semibold">Mulai &rarr;</a>
+        {% if task.status != 'ARCHIVED' %}<a href="{% url 'tasks:focus_mode' task.pk %}" class="text-xs text-indigo-600 hover:underline font-semibold">Mulai &rarr;</a>{% endif %}
       </div>
       {% if focus_sessions %}
         <div class="overflow-x-auto">
