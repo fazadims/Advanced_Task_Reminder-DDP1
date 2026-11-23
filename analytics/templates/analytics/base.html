@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ATR{% endblock %}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #ddd; }
+    .warn { background: #fff4e5; border-left: 4px solid #f90; padding: .5rem 1rem; margin: 1rem 0; }
+    .stat { display: inline-block; margin-right: 2rem; }
+    .bar { background: #eee; border-radius: 4px; height: 12px; width: 200px; }
+    .bar > span { display: block; background: #2a7; height: 100%; border-radius: 4px; }
+    a { color: #25c; }
+  </style>
+</head>
+<body>
+  {% block content %}{% endblock %}
+</body>
+</html>
