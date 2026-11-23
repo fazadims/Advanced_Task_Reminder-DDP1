@@ -47,3 +47,10 @@ Repositori kerja tim untuk proyek **Advanced Task Reminder** menggunakan framewo
   git checkout -b feat/nama-fitur
   ```
 - Push branch dan buat Pull Request ke `main` agar tidak terjadi konflik antar anggota tim.
+
+## Mesin Analisis & Dashboard (`analytics/`)
+- `services.py` — fungsi murni: `estimate_hours`, `priority_score`, `priority_label`, `crunch_weeks`, `workload_by_day`, `find_free_slots`.
+- Rumus skor: `skor = 0.4*bobot + 0.2*(2*jam_estimasi) + 0.4*(40/hari_tersisa)`; skor ≥25 🛑, ≥12 🟡, selain itu 🟢.
+- Dashboard di `/`, detail tugas di `/task/<id>/`.
+- Demo: `python manage.py makemigrations tasks && python manage.py migrate && python manage.py seed_demo`
+- Tes engine: `python manage.py test analytics`
