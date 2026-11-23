@@ -369,6 +369,6 @@ class SnoozeAndAlertsTests(FastTestCase):
 
         resp = self.client.get(reverse("alerts:inbox"))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Alert Inbox")
+        self.assertContains(resp, "Kotak Pengingat")
         self.assertContains(resp, "TP 3 Struktur Data")
         self.assertContains(resp, "Active reminder message")

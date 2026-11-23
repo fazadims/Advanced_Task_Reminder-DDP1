@@ -112,10 +112,10 @@ class TaskDetailAndHistoryTests(FastTestCase):
         self.assertIn("Proyek Akhir ATR", html)
         self.assertIn("CSGE601020", html)
         self.assertIn("Complete Django application with HTMX and unit tests.", html)
-        self.assertIn("Group Project", html)
-        self.assertIn("30.00%", html)
-        self.assertIn("240 min", html)
-        self.assertIn("45 min", html)
+        self.assertIn("Proyek Kelompok", html)
+        self.assertIn("30%", html)
+        self.assertIn("4 jam", html)
+        self.assertIn("45 mnt", html)
         self.assertIn("87.5", html)
         self.assertIn("High course weight and approaching deadline.", html)
         # Checkpoints & progress
@@ -124,7 +124,7 @@ class TaskDetailAndHistoryTests(FastTestCase):
         self.assertIn("50%", html)
         # Focus session
         self.assertIn("Deep Work (50/10)", html)
-        self.assertIn("45/50m", html)
+        self.assertIn("45/50 mnt", html)
         # Upcoming reminder
         self.assertIn("Time to start writing end-to-end tests!", html)
 
@@ -193,7 +193,7 @@ class TaskDetailAndHistoryTests(FastTestCase):
         self.assertEqual(page1.object_list[0].title, "Completed Task 01")
 
         html_p1 = resp_p1.content.decode()
-        self.assertIn("Page 1 of 2", html_p1)
+        self.assertIn("Halaman 1 dari 2", html_p1)
         self.assertNotIn("Active TODO Task", html_p1)
         self.assertNotIn("In Progress Task", html_p1)
         self.assertNotIn("Archived Task", html_p1)
@@ -210,7 +210,7 @@ class TaskDetailAndHistoryTests(FastTestCase):
             [t.title for t in page2.object_list],
             ["Completed Task 16", "Completed Task 17", "Completed Task 18"],
         )
-        self.assertIn("Page 2 of 2", resp_p2.content.decode())
+        self.assertIn("Halaman 2 dari 2", resp_p2.content.decode())
 
     def test_history_course_filter_and_variance_badges(self):
         # Faster task (120 est vs 90 actual via completed focus session -> Lebih cepat 30 mnt)

@@ -240,6 +240,6 @@ class DailyDigestTests(FastTestCase):
         self.client.force_login(self.user)
         resp = self.client.get(reverse("alerts:daily_digest"))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Daily Digest")
+        self.assertContains(resp, "Ringkasan Harian")
         self.assertContains(resp, "Overdue Essay Brief")
         self.assertContains(resp, "Upcoming Lab Brief")

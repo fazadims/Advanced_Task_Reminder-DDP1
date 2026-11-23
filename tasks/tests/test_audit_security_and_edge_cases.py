@@ -973,7 +973,7 @@ class CheckpointsAndAlertsConsistencyTests(TestCase):
         self.assertEqual(resp_last["HX-Retarget"], "#checkpoint-list")
         self.assertEqual(resp_last["HX-Reswap"], "outerHTML")
         html_last = resp_last.content.decode("utf-8")
-        self.assertIn("No checkpoints yet", html_last)
+        self.assertIn("Belum ada checkpoint", html_last)
         self.assertIn('id="task-progress-bar" hx-swap-oob="true"', html_last)
         self.assertIn('id="upcoming-reminders" hx-swap-oob="true"', html_last)
 

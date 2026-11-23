@@ -129,7 +129,7 @@ class AICheckpointSuggestionTests(FastTestCase):
                 self.assertEqual(resp_timeout.status_code, 200)
                 self.assertEqual(resp_timeout.context["source"], "fallback")
                 self.assertTrue(len(resp_timeout.context["suggestions"]) >= 3)
-                self.assertIn("Smart Template Fallback", resp_timeout.content.decode())
+                self.assertIn("Template Cerdas", resp_timeout.content.decode())
 
             # 2. Malformed HTTP body JSON
             malformed_body = _mock_urlopen_response(b"{not-valid-json!!!")
@@ -141,7 +141,7 @@ class AICheckpointSuggestionTests(FastTestCase):
                 self.assertNotIn("fake-gemini-key", log_output)
                 self.assertEqual(resp_bad_body.status_code, 200)
                 self.assertEqual(resp_bad_body.context["source"], "fallback")
-                self.assertIn("Smart Template Fallback", resp_bad_body.content.decode())
+                self.assertIn("Template Cerdas", resp_bad_body.content.decode())
 
             # 3. Malformed inner Gemini text JSON
             bad_inner = {
@@ -156,7 +156,7 @@ class AICheckpointSuggestionTests(FastTestCase):
                 self.assertNotIn("fake-gemini-key", log_output)
                 self.assertEqual(resp_bad_inner.status_code, 200)
                 self.assertEqual(resp_bad_inner.context["source"], "fallback")
-                self.assertIn("Smart Template Fallback", resp_bad_inner.content.decode())
+                self.assertIn("Template Cerdas", resp_bad_inner.content.decode())
 
     def test_apply_ai_checkpoints_saves_only_checked_items_with_ai_flag_and_spaced_deadlines(self):
         self.client.force_login(self.user)
