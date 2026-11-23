@@ -11,16 +11,16 @@ from tasks.models import Checkpoint, FocusSession, Task
 
 PHASE_TEMPLATES: dict[str, list[tuple[str, str, float]]] = {
     "TP": [
-        ("RESEARCH", "Read spec & gather references", 0.25),
-        ("DRAFT", "Build core solution / first draft", 0.55),
-        ("REVIEW", "Test edge cases & revise", 0.80),
-        ("SUBMIT", "Final check & upload submission", 0.95),
+        ("RESEARCH", "Baca spesifikasi & kumpulkan referensi", 0.25),
+        ("DRAFT", "Kerjakan solusi inti / draf pertama", 0.55),
+        ("REVIEW", "Uji edge case & lakukan revisi", 0.80),
+        ("SUBMIT", "Pengecekan akhir & unggah submisi", 0.95),
     ],
     "PROJECT": [
-        ("RESEARCH", "Read spec & gather references", 0.25),
-        ("DRAFT", "Build core solution / first draft", 0.55),
-        ("REVIEW", "Test edge cases & revise", 0.80),
-        ("SUBMIT", "Final check & upload submission", 0.95),
+        ("RESEARCH", "Baca spesifikasi & kumpulkan referensi", 0.25),
+        ("DRAFT", "Kerjakan solusi inti / draf pertama", 0.55),
+        ("REVIEW", "Uji edge case & lakukan revisi", 0.80),
+        ("SUBMIT", "Pengecekan akhir & unggah submisi", 0.95),
     ],
     "LAB": [
         ("RESEARCH", "Pelajari materi & pahami soal", 0.30),

@@ -15,8 +15,8 @@ DATETIME_INPUT_FORMATS = [
 ]
 
 INPUT_CLASS = (
-    "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm "
-    "text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none "
+    "w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm "
+    "text-slate-900 focus:border-indigo-500 focus:outline-none "
     "focus:ring-2 focus:ring-indigo-500/20"
 )
 CHECKBOX_CLASS = "h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
@@ -28,16 +28,22 @@ class TaskForm(forms.ModelForm):
     deadline = forms.DateTimeField(
         required=True,
         input_formats=DATETIME_INPUT_FORMATS,
+        error_messages={
+            "required": "Tenggat waktu wajib diisi.",
+            "invalid": "Format tanggal dan waktu tidak valid.",
+        },
         widget=forms.DateTimeInput(
             format=DATETIME_FORMAT,
             attrs={"type": "datetime-local", "class": INPUT_CLASS},
         ),
-        label="Deadline",
+        label="Tenggat Waktu (Deadline)",
+        help_text="Gunakan tombol cepat di bawah atau pilih tanggal & jam secara manual.",
     )
     auto_generate_checkpoints = forms.BooleanField(
         required=False,
         initial=True,
-        label="Generate checkpoint otomatis",
+        label="Buat checkpoint otomatis",
+        help_text="Otomatis membagi tugas menjadi 3–4 langkah bertahap sebelum deadline.",
         widget=forms.CheckboxInput(attrs={"class": CHECKBOX_CLASS}),
     )
 
@@ -55,6 +61,30 @@ class TaskForm(forms.ModelForm):
             "description",
             "status",
         ]
+        labels = {
+            "title": "Judul Tugas",
+            "course": "Mata Kuliah",
+            "category": "Kategori Tugas",
+            "deadline": "Tenggat Waktu (Deadline)",
+            "estimated_minutes": "Estimasi Durasi (menit)",
+            "weight_percentage": "Bobot Nilai BRP (%)",
+            "difficulty": "Tingkat Kesulitan",
+            "is_group_project": "Ini adalah proyek kelompok",
+            "description": "Catatan / Link Soal",
+            "status": "Status Pengerjaan",
+        }
+        error_messages = {
+            "title": {
+                "required": "Judul tugas wajib diisi.",
+            },
+        }
+        help_texts = {
+            "course": "Opsional. Pilih mata kuliah atau klik '+ Tambah Mata Kuliah' di kanan atas.",
+            "deadline": "Gunakan tombol cepat di bawah atau pilih tanggal & jam secara manual.",
+            "estimated_minutes": "Perkiraan total waktu pengerjaan. Klik chip durasi cepat agar lebih praktis.",
+            "weight_percentage": "Lihat persentase nilai di BRP. Biarkan 0% jika belum tahu.",
+            "difficulty": "Pilih skala 1–5 sesuai perkiraan kerumitan tugas.",
+        }
         widgets = {
             "title": forms.TextInput(
                 attrs={
@@ -154,12 +184,18 @@ class CheckpointForm(forms.ModelForm):
             format=DATETIME_FORMAT,
             attrs={"type": "datetime-local", "class": INPUT_CLASS},
         ),
-        label="Target Deadline",
+        label="Target Tenggat",
     )
 
     class Meta:
         model = Checkpoint
         fields = ["title", "phase", "target_deadline", "estimated_minutes"]
+        labels = {
+            "title": "Judul Checkpoint",
+            "phase": "Fase Pengerjaan",
+            "target_deadline": "Target Tenggat",
+            "estimated_minutes": "Estimasi Durasi (menit)",
+        }
         widgets = {
             "title": forms.TextInput(
                 attrs={

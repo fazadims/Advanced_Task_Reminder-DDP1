@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from tasks.models import Checkpoint, Reminder, Task
 from tasks.services.ai_coaching import generate_coaching_message
+from tasks.services.priority import recalculate_task_priority
 
 ESCALATION_TIERS: tuple[tuple[int, timedelta], ...] = (
     (1, timedelta(days=3)),
@@ -32,6 +33,20 @@ def _ensure_aware(dt: datetime | None) -> datetime:
     if settings.USE_TZ and timezone.is_naive(dt):
         return timezone.make_aware(dt, timezone.get_current_timezone())
     return dt
+
+
+def active_due_reminders_qs(user, now: datetime | None = None):
+    """Canonical active due WEB reminder queryset shared by navbar badge, inbox, and polling."""
+    current_now = _ensure_aware(now or timezone.now())
+    return (
+        Reminder.objects.filter(user=user, channel="WEB")
+        .exclude(task__status__in=("DONE", "ARCHIVED"))
+        .exclude(checkpoint__is_done=True)
+        .filter(
+            Q(status__in=("PENDING", "SENT"), scheduled_for__lte=current_now)
+            | Q(status="SNOOZED", snoozed_until__lte=current_now)
+        )
+    )
 
 
 def sync_reminders_for_task(task: Task, now: datetime | None = None) -> int:
@@ -321,7 +336,7 @@ def snooze_reminder_action(
         return False, {
             "ok": False,
             "reason": "invalid_duration",
-            "error": "Invalid snooze duration. Use 15, 60, or 180.",
+            "error": "Durasi tunda tidak valid. Pilih 15 menit, 1 jam, atau 3 jam.",
         }
 
     current_now = _ensure_aware(now)
@@ -358,7 +373,7 @@ def snooze_reminder_action(
             return False, {
                 "ok": False,
                 "reason": "max_snooze_reached",
-                "error": "Maximum snooze limit (3x) reached! Please start this checkpoint now.",
+                "error": "Batas tunda maksimal (3x) sudah tercapai! Yuk mulai checkpoint ini sekarang.",
                 "reminder_id": reminder.pk,
                 "snooze_count": reminder.snooze_count,
             }
@@ -373,7 +388,7 @@ def snooze_reminder_action(
             return False, {
                 "ok": False,
                 "reason": "deadline_too_close",
-                "error": "Cannot snooze past the target deadline.",
+                "error": "Tidak bisa menunda melewati tenggat waktu target.",
                 "reminder_id": reminder.pk,
             }
 
@@ -427,24 +442,33 @@ def complete_reminder_action(
         reminder.save(update_fields=["status"])
 
         if reminder.channel != "DIGEST":
+            task = reminder.task
             if reminder.checkpoint_id and reminder.checkpoint:
                 cp = reminder.checkpoint
                 if not cp.is_done or cp.completed_at is None:
                     cp.is_done = True
                     cp.completed_at = cp.completed_at or current_now
                     cp.save(update_fields=["is_done", "completed_at"])
-                reminder.task.sync_status_from_checkpoints()
-                sync_reminders_for_task(reminder.task, now=current_now)
+                task.sync_status_from_checkpoints(save=False)
             else:
-                task = reminder.task
                 if task.checkpoints.count() == 0:
                     if task.status != "ARCHIVED":
                         task.status = "DONE"
                         task.completed_at = task.completed_at or current_now
-                        task.save(update_fields=["status", "completed_at", "updated_at"])
                 else:
-                    task.sync_status_from_checkpoints()
-                sync_reminders_for_task(task, now=current_now)
+                    task.sync_status_from_checkpoints(save=False)
+            recalculate_task_priority(task, now=current_now)
+            task.save(
+                update_fields=[
+                    "status",
+                    "completed_at",
+                    "priority_score",
+                    "priority_level",
+                    "priority_reason",
+                    "updated_at",
+                ]
+            )
+            sync_reminders_for_task(task, now=current_now)
 
     return True, {
         "ok": True,

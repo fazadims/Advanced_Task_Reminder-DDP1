@@ -172,7 +172,7 @@ class Task(models.Model):
     def is_overdue(self) -> bool:
         return self.status not in ("DONE", "ARCHIVED") and self.deadline < timezone.now()
 
-    def sync_status_from_checkpoints(self) -> str:
+    def sync_status_from_checkpoints(self, *, save: bool = True) -> str:
         """Recalculates parent task.status and completed_at from its checkpoints in one query."""
         if self.status == "ARCHIVED":
             return self.status
@@ -188,7 +188,8 @@ class Task(models.Model):
             if self.status == "IN_PROGRESS":
                 self.status = "TODO"
                 self.completed_at = None
-                self.save(update_fields=["status", "completed_at", "updated_at"])
+                if save:
+                    self.save(update_fields=["status", "completed_at", "updated_at"])
             return self.status
 
         if done == total:
@@ -201,7 +202,8 @@ class Task(models.Model):
         else:
             self.status = "TODO"
             self.completed_at = None
-        self.save(update_fields=["status", "completed_at", "updated_at"])
+        if save:
+            self.save(update_fields=["status", "completed_at", "updated_at"])
         return self.status
 
 
