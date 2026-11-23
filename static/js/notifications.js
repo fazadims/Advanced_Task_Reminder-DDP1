@@ -1,17 +1,46 @@
 (() => {
   const btn = document.getElementById('enable-desktop-alerts');
+  const dot = document.getElementById('desktop-alert-dot');
   const box = document.getElementById('alert-toast-container');
   const pollUrl = box?.dataset.pollUrl || '/alerts/poll/';
   const SEEN_KEY = 'atr_seen_notifications';
   const TONES = {
-    3: 'bg-red-50 border-red-300 text-red-900',
+    3: 'bg-rose-50 border-rose-300 text-rose-900',
     2: 'bg-amber-50 border-amber-300 text-amber-900',
-    1: 'bg-blue-50 border-blue-300 text-blue-900',
+    1: 'bg-indigo-50 border-indigo-200 text-slate-900',
   };
   const BADGES = {
-    3: 'bg-red-600 text-white',
-    2: 'bg-amber-500 text-white',
-    1: 'bg-blue-600 text-white',
+    3: 'bg-rose-600 text-white',
+    2: 'bg-amber-700 text-white',
+    1: 'bg-indigo-600 text-white',
+  };
+
+  const getInitialAlertCount = () => {
+    const initialBadge = document.querySelector('#nav-alert-badge, [data-nav-alert-badge]');
+    if (!initialBadge || initialBadge.classList.contains('hidden')) return 0;
+    return parseInt(initialBadge.textContent || '0', 10) || 0;
+  };
+
+  let currentAlertCount = getInitialAlertCount();
+
+  const notifyUx = (message, tone = 'info') => {
+    if (typeof window.atrToast === 'function') {
+      window.atrToast(message, tone);
+    }
+  };
+
+  const updateNavBadge = (count) => {
+    const safeCount = Math.max(0, Number.isFinite(count) ? count : 0);
+    currentAlertCount = safeCount;
+    document.querySelectorAll('#nav-alert-badge, [data-nav-alert-badge]').forEach((badge) => {
+      if (safeCount > 0) {
+        badge.textContent = safeCount > 99 ? '99+' : String(safeCount);
+        badge.classList.remove('hidden');
+      } else {
+        badge.textContent = '0';
+        badge.classList.add('hidden');
+      }
+    });
   };
 
   const loadSeen = () => {
@@ -34,18 +63,20 @@
   const csrf = () => {
     const cookieMatch = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
     if (cookieMatch && cookieMatch[1]) return decodeURIComponent(cookieMatch[1]);
-    let token = '';
     try {
-      token = JSON.parse(document.body.getAttribute('hx-headers') || '{}')['X-CSRFToken'] || '';
-    } catch (_) {}
-    if (!token) {
-      const fallback = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
-      if (fallback && fallback[1]) token = decodeURIComponent(fallback[1]);
+      return JSON.parse(document.body.getAttribute('hx-headers') || '{}')['X-CSRFToken'] || '';
+    } catch (_) {
+      return '';
     }
-    return token;
   };
 
   const desktopSupported = ('Notification' in window) && Boolean(window.isSecureContext);
+  const setDotColor = (colorClass) => {
+    if (!dot) return;
+    dot.classList.remove('bg-slate-300', 'bg-emerald-500', 'bg-rose-500');
+    dot.classList.add(colorClass);
+  };
+
   const syncBtn = () => {
     if (!btn) return;
     if (!desktopSupported) {
@@ -53,17 +84,47 @@
       btn.classList.add('hidden');
       return;
     }
-    if (Notification.permission === 'granted') btn.textContent = 'Desktop Alerts On';
-    else if (Notification.permission === 'denied') btn.textContent = 'Alerts Blocked';
+    const labelEl = btn.querySelector('[data-label]');
+    if (Notification.permission === 'granted') {
+      if (labelEl) labelEl.textContent = 'Aktif';
+      setDotColor('bg-emerald-500');
+      btn.title = 'Notifikasi desktop aktif';
+    } else if (Notification.permission === 'denied') {
+      if (labelEl) labelEl.textContent = 'Diblokir';
+      setDotColor('bg-rose-500');
+      btn.title = 'Notifikasi desktop diblokir oleh browser';
+    } else {
+      if (labelEl) labelEl.textContent = 'Notifikasi';
+      setDotColor('bg-slate-300');
+      btn.title = 'Aktifkan notifikasi desktop';
+    }
   };
+
   btn?.addEventListener('click', () => {
     if (!desktopSupported) return;
+    if (Notification.permission === 'granted') {
+      notifyUx('Notifikasi desktop sudah aktif.', 'info');
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      notifyUx('Notifikasi desktop diblokir. Izinkan lewat pengaturan browser.', 'warning');
+      return;
+    }
     try {
+      const handlePermission = (permission) => {
+        syncBtn();
+        const status = permission || Notification.permission;
+        if (status === 'granted') {
+          notifyUx('Notifikasi desktop berhasil diaktifkan!', 'success');
+        } else if (status === 'denied') {
+          notifyUx('Izin notifikasi desktop ditolak.', 'warning');
+        }
+      };
       const req = Notification.requestPermission();
       if (req && typeof req.then === 'function') {
-        req.then(syncBtn).catch(() => {});
+        req.then(handlePermission).catch(() => {});
       } else {
-        syncBtn();
+        handlePermission(req);
       }
     } catch (_) {}
   });
@@ -73,14 +134,14 @@
     let errEl = card.querySelector('.toast-error');
     if (!errEl) {
       errEl = Object.assign(document.createElement('p'), {
-        className: 'toast-error text-red-700 font-semibold pt-1',
+        className: 'toast-error text-rose-700 font-semibold pt-1',
       });
       card.appendChild(errEl);
     }
     errEl.textContent = message;
   };
 
-  const act = async (url, body, card) => {
+  const act = async (url, body, card, feedbackMsg, feedbackTone = 'info') => {
     const btns = [...card.querySelectorAll('button')];
     btns.forEach((b) => { b.disabled = true; });
     const existingErr = card.querySelector('.toast-error');
@@ -97,9 +158,19 @@
       });
       if (res.ok) {
         card.remove();
+        updateNavBadge(Math.max(0, currentAlertCount - 1));
+        if (feedbackMsg) notifyUx(feedbackMsg, feedbackTone);
+        poll(true);
+        if (document.getElementById('inbox-sections') && window.htmx) {
+          window.htmx.ajax('GET', window.location.pathname, {
+            target: '#inbox-sections',
+            select: '#inbox-sections',
+            swap: 'outerHTML',
+          });
+        }
         return;
       }
-      let errMsg = 'Action failed. Please try again.';
+      let errMsg = 'Aksi gagal. Silakan coba lagi.';
       try {
         const ct = res.headers.get('content-type') || '';
         if (ct.includes('application/json')) {
@@ -109,7 +180,7 @@
       } catch (_) {}
       showCardError(card, errMsg);
     } catch (_) {
-      showCardError(card, 'Network error. Please try again.');
+      showCardError(card, 'Gangguan jaringan. Silakan coba lagi.');
     } finally {
       if (card.isConnected) {
         btns.forEach((b) => { b.disabled = false; });
@@ -121,7 +192,7 @@
     const b = Object.assign(document.createElement('button'), {
       type: 'button',
       textContent: text,
-      className: extraClass || 'px-2 py-1 rounded bg-white/80 hover:bg-white border border-slate-300 text-xs font-medium disabled:opacity-50',
+      className: extraClass || 'px-2 py-1 rounded-lg bg-white/90 hover:bg-white border border-slate-300 text-xs font-medium text-slate-700 disabled:opacity-50',
     });
     b.addEventListener('click', fn);
     return b;
@@ -130,7 +201,7 @@
   const renderToast = (item, signature) => {
     const level = item.escalation_level || 1;
     const card = Object.assign(document.createElement('div'), {
-      className: `rounded-xl border shadow-lg p-3 text-xs space-y-1.5 ${TONES[level] || TONES[1]}`,
+      className: `atr-toast-enter rounded-xl border shadow-lg p-3 text-xs space-y-1.5 ${TONES[level] || TONES[1]}`,
     });
     card.dataset.reminderId = String(item.id);
     card.dataset.signature = signature;
@@ -146,7 +217,7 @@
     if (item.task_url) {
       const openLink = Object.assign(document.createElement('a'), {
         href: item.task_url,
-        textContent: 'Open →',
+        textContent: 'Buka →',
         className: 'text-indigo-700 hover:underline font-semibold shrink-0',
       });
       header.appendChild(openLink);
@@ -154,7 +225,7 @@
 
     const title = Object.assign(document.createElement('p'), {
       className: 'font-semibold',
-      textContent: item.title || item.task_title || 'Task Reminder',
+      textContent: item.title || item.task_title || 'Pengingat Tugas',
     });
 
     card.append(header, title);
@@ -179,25 +250,41 @@
     const dismiss = item.dismiss_url || `/alerts/${item.id}/dismiss/`;
     const done = item.done_url || `/alerts/${item.id}/done/`;
 
+    if ((item.snooze_count || 0) >= 3) {
+      const limitPill = Object.assign(document.createElement('span'), {
+        textContent: 'Batas tunda 3/3',
+        className: 'inline-flex items-center px-2 py-1 rounded-lg bg-rose-100 border border-rose-200 text-rose-700 text-[11px] font-semibold',
+      });
+      row.append(limitPill);
+    } else {
+      row.append(
+        mkBtn('Tunda 15m', () => act(snooze, 'minutes=15', card, 'Pengingat ditunda 15 menit', 'info')),
+        mkBtn('Tunda 1j', () => act(snooze, 'minutes=60', card, 'Pengingat ditunda 1 jam', 'info')),
+      );
+    }
+
     row.append(
-      mkBtn('Snooze 15m', () => act(snooze, 'minutes=15', card)),
-      mkBtn('Snooze 1h', () => act(snooze, 'minutes=60', card)),
       mkBtn(
-        'Done',
-        () => act(done, '', card),
-        'px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-700 text-xs font-semibold disabled:opacity-50',
+        'Selesai',
+        () => act(done, '', card, 'Ditandai selesai!', 'success'),
+        'px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-700 text-xs font-semibold disabled:opacity-50',
       ),
-      mkBtn('Dismiss', () => act(dismiss, '', card)),
+      mkBtn('Tutup', () => act(dismiss, '', card, 'Pengingat ditutup', 'info')),
     );
     card.appendChild(row);
     return card;
   };
 
   let inFlight = false;
+  let queuedPoll = false;
   let pollTimer = null;
 
-  async function poll() {
-    if (!box || document.hidden || inFlight) return;
+  async function poll(force = false) {
+    if (!box || (document.hidden && !force)) return;
+    if (inFlight) {
+      if (force) queuedPoll = true;
+      return;
+    }
     inFlight = true;
     try {
       const res = await fetch(pollUrl, { headers: { Accept: 'application/json' } });
@@ -208,6 +295,8 @@
       if (!res.ok || !(res.headers.get('content-type') || '').includes('application/json')) return;
       const data = await res.json();
       const items = Array.isArray(data) ? data : (data.alerts || data.items || data.reminders || []);
+
+      updateNavBadge(items.length);
 
       const activeIds = new Set(items.map((item) => String(item.id)));
       [...box.querySelectorAll('[data-reminder-id]')].forEach((el) => {
@@ -231,7 +320,7 @@
         if (desktopSupported && Notification.permission === 'granted' && !seen.has(seenKey)) {
           markSeen(seenKey);
           try {
-            const n = new Notification(item.title || item.task_title || 'ATR Reminder', {
+            const n = new Notification(item.title || item.task_title || 'Pengingat ATR', {
               body: item.message || '',
               tag: `atr-${item.id}`,
             });
@@ -246,8 +335,16 @@
     } catch (_) {
     } finally {
       inFlight = false;
+      if (queuedPoll) {
+        queuedPoll = false;
+        poll(true);
+      }
     }
   }
+
+  document.body.addEventListener('remindersChanged', () => {
+    poll(true);
+  });
 
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && pollTimer) poll();

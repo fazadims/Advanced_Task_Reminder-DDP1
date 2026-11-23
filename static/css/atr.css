@@ -1,0 +1,214 @@
+/* ==========================================================================
+   ATR — Advanced Task Reminder Design System
+   Modern academic-productivity styling (Linear / Things 3 aesthetic)
+   ========================================================================== */
+
+:root {
+  --atr-bg: #F7F8FA;
+  --atr-surface: #FFFFFF;
+  --atr-surface-muted: #F1F5F9;
+  --atr-border: #E2E8F0;
+  --atr-border-strong: #CBD5E1;
+  --atr-text: #0F172A;
+  --atr-text-muted: #64748B;
+  --atr-primary: #4F46E5;
+  --atr-primary-hover: #4338CA;
+  --atr-primary-soft: #EEF2FF;
+  --atr-font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --atr-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Base typography & subtle airy surface depth */
+html {
+  font-family: var(--atr-font-sans);
+  color: var(--atr-text);
+  background-color: var(--atr-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--atr-font-sans);
+  background-color: var(--atr-bg);
+  background-image: radial-gradient(ellipse 80% 40% at 50% -8%, rgba(79, 70, 229, 0.045), transparent 72%);
+  background-repeat: no-repeat;
+  color: var(--atr-text);
+}
+
+/* Monospace tokens, timers & course codes */
+code,
+pre,
+kbd,
+.font-mono {
+  font-family: var(--atr-font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.atr-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Crisp accessible focus-visible rings */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid #6366F1;
+  outline-offset: 2px;
+}
+
+/* Subtle tactile transitions on interactive elements */
+a,
+button,
+input,
+select,
+textarea {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Hide scrollbars cleanly for horizontal nav strips on small screens */
+.atr-no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.atr-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ==========================================================================
+   Global HTMX Top Progress Bar
+   ========================================================================== */
+#htmx-top-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 60;
+  height: 3px;
+  width: 0%;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, var(--atr-primary) 0%, #6366F1 65%, #818CF8 100%);
+  border-radius: 0 2px 2px 0;
+  transition: width 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease;
+}
+
+#htmx-top-bar.is-loading {
+  width: 78%;
+  opacity: 1;
+}
+
+#htmx-top-bar.is-finishing {
+  width: 100%;
+  opacity: 0;
+  transition: width 160ms ease-out, opacity 240ms ease 100ms;
+}
+
+/* ==========================================================================
+   HTMX Swap & Indicator Micro-Animations
+   ========================================================================== */
+@keyframes atrSwapEnter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.atr-swap-enter,
+.htmx-added {
+  animation: atrSwapEnter 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.htmx-indicator {
+  display: none;
+  align-items: center;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+  display: inline-flex;
+  opacity: 1;
+}
+
+/* ==========================================================================
+   Ephemeral UX Toast & Flash Banner Animations
+   ========================================================================== */
+@keyframes atrToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.atr-toast-enter {
+  animation: atrToastIn 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.atr-toast-exit {
+  opacity: 0 !important;
+  transform: translateY(-6px) scale(0.97) !important;
+  transition: opacity 200ms ease, transform 200ms ease !important;
+}
+
+.atr-flash-exit {
+  opacity: 0 !important;
+  transform: translateY(-4px) !important;
+  max-height: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  overflow: hidden;
+  transition: opacity 220ms ease, transform 220ms ease, max-height 240ms ease, padding 240ms ease, margin 240ms ease;
+}
+
+/* ==========================================================================
+   Focus Mode SVG Progress Ring
+   ========================================================================== */
+#timer-ring-progress,
+.atr-ring-progress {
+  transition: stroke-dashoffset 0.35s ease, stroke 0.35s ease;
+}
+
+/* ==========================================================================
+   Styled <kbd> Shortcut Chips
+   ========================================================================== */
+.atr-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.45rem;
+  height: 1.4rem;
+  padding: 0 0.375rem;
+  font-family: var(--atr-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  color: #334155;
+  background-color: #F8FAFC;
+  border: 1px solid var(--atr-border-strong);
+  border-radius: 0.375rem;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.08);
+  user-select: none;
+}
+
+/* ==========================================================================
+   Reduced Motion Preference
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
