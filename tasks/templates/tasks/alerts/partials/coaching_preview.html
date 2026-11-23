@@ -1,0 +1,11 @@
+<div class="rounded-xl border p-3.5 text-xs space-y-1.5 {% if tone == 'strict' %}bg-red-50 border-red-200 text-red-900{% elif tone == 'minimal' %}bg-slate-50 border-slate-200 text-slate-800{% else %}bg-emerald-50 border-emerald-200 text-emerald-900{% endif %}">
+  <div class="flex items-center justify-between gap-2">
+    <span class="font-bold uppercase tracking-wide">
+      Tone: {{ tone|default:"friendly"|title }}
+    </span>
+    <span class="px-2 py-0.5 rounded-full bg-white/80 text-[11px] font-semibold text-slate-700">
+      {% if source == "gemini" or source == "ai" %}AI Coaching{% else %}Deterministic Fallback{% endif %}
+    </span>
+  </div>
+  <p class="text-sm font-medium leading-relaxed">{{ message|default:preview_message }}</p>
+</div>
