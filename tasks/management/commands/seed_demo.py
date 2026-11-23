@@ -23,8 +23,9 @@ class Command(BaseCommand):
         data = [
             (ddp, "Proyek Kelompok", "Proyek", 25, 17),
             (ddp, "Kuis 3", "Kuis", 5, 2),
-            (mat, "UTS Matdis", "UTS", 30, 6),
+            (mat, "UTS Matdis", "UTS", 30, 2),
             (mat, "Tugas Pemodelan", "Tugas", 10, 4),
+            (mat, "Tugas Kelompok", "Tugas", 15, 4),
             (pbp, "Lab 7", "Lab", 3, 1),
             (pbp, "UAS Sisdig", "UAS", 30, 25),
         ]
