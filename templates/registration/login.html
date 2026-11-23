@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Login — ATR{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto mt-10 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
+  <h1 class="text-2xl font-bold text-slate-900">Sign In</h1>
+  <p class="text-sm text-slate-500 mt-1">Manage your assignments, checkpoints, and smart reminders.</p>
+
+  {% if form.errors %}
+    <div class="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+      Invalid username or password. Please try again.
+    </div>
+  {% endif %}
+
+  <form method="post" class="mt-6 space-y-4">
+    {% csrf_token %}
+    <div>
+      <label for="{{ form.username.id_for_label }}" class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+      <input type="text" name="{{ form.username.html_name }}" id="{{ form.username.id_for_label }}"
+             value="{{ form.username.value|default:'' }}" required autofocus
+             class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+    </div>
+    <div>
+      <label for="{{ form.password.id_for_label }}" class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+      <input type="password" name="{{ form.password.html_name }}" id="{{ form.password.id_for_label }}" required
+             class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+    </div>
+    {% if next %}
+      <input type="hidden" name="next" value="{{ next }}">
+    {% endif %}
+    <button type="submit" class="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm transition">
+      Login
+    </button>
+  </form>
+
+  <p class="mt-5 text-center text-sm text-slate-600">
+    Don't have an account?
+    <a href="{% url 'register' %}" class="text-indigo-600 hover:underline font-medium">Register</a>
+  </p>
+</div>
+{% endblock %}
