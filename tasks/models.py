@@ -1,11 +1,16 @@
 """Person B canonical models: Task, Checkpoint, FocusSession, Reminder, DailyDigestLog, TelegramLink."""
 
+from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
-from django.db.models import Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
+
+TELEGRAM_LINK_TOKEN_TTL_MINUTES = 30
 
 
 class Task(models.Model):
@@ -65,12 +70,16 @@ class Task(models.Model):
     deadline = models.DateTimeField(db_index=True)
     estimated_minutes = models.PositiveIntegerField(default=120)
     actual_minutes = models.PositiveIntegerField(default=0)
-    difficulty = models.PositiveSmallIntegerField(default=3)
+    difficulty = models.PositiveSmallIntegerField(
+        default=3,
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+    )
     is_group_project = models.BooleanField(default=False)
     weight_percentage = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
     )
     priority_score = models.FloatField(default=0.0)
     priority_level = models.CharField(
@@ -92,10 +101,31 @@ class Task(models.Model):
 
     class Meta:
         ordering = ["deadline", "-priority_score"]
+        indexes = [
+            models.Index(fields=["user", "status", "deadline"], name="task_user_status_dl_idx"),
+            models.Index(fields=["user", "status", "-completed_at"], name="task_user_status_comp_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "external_uid"],
+                condition=~Q(external_uid=""),
+                name="unique_user_external_uid",
+            ),
+        ]
 
     def __str__(self) -> str:
         prefix = f"[{self.course.code}] " if self.course_id else ""
         return f"{prefix}{self.title}"
+
+    def clean(self) -> None:
+        super().clean()
+        if self.course_id and self.user_id and self.course.user_id != self.user_id:
+            raise ValidationError({"course": "Selected course does not belong to this user."})
+        if self.component_id:
+            if not self.course_id or self.component.course_id != self.course_id:
+                raise ValidationError(
+                    {"component": "Selected grading component does not belong to the task's course."}
+                )
 
     def progress_percent(self) -> int:
         """Returns 0-100 completion percentage based on checkpoints or task status."""
@@ -107,7 +137,21 @@ class Task(models.Model):
         return round((done / total) * 100)
 
     def total_focus_minutes(self) -> int:
-        """Returns sum of actual_minutes across all COMPLETED FocusSession logs."""
+        """Returns sum of actual_minutes across all COMPLETED FocusSession logs.
+
+        Uses pre-annotated ``logged_focus_minutes`` or prefetched ``focus_sessions``
+        when available to avoid N+1 aggregate queries in list/history views.
+        """
+        annotated = getattr(self, "logged_focus_minutes", None)
+        if annotated is not None:
+            return int(annotated)
+        prefetched = getattr(self, "_prefetched_objects_cache", None)
+        if prefetched and "focus_sessions" in prefetched:
+            return sum(
+                int(s.actual_minutes or 0)
+                for s in prefetched["focus_sessions"]
+                if s.status == "COMPLETED"
+            )
         agg = self.focus_sessions.filter(status="COMPLETED").aggregate(
             total=Sum("actual_minutes")
         )
@@ -129,11 +173,24 @@ class Task(models.Model):
         return self.status not in ("DONE", "ARCHIVED") and self.deadline < timezone.now()
 
     def sync_status_from_checkpoints(self) -> str:
-        """Recalculates parent task.status and completed_at from its checkpoints."""
-        total = self.checkpoints.count()
-        if total == 0:
+        """Recalculates parent task.status and completed_at from its checkpoints in one query."""
+        if self.status == "ARCHIVED":
             return self.status
-        done = self.checkpoints.filter(is_done=True).count()
+
+        counts = self.checkpoints.aggregate(
+            total=Count("id"),
+            done=Count("id", filter=Q(is_done=True)),
+        )
+        total = int(counts["total"] or 0)
+        done = int(counts["done"] or 0)
+
+        if total == 0:
+            if self.status == "IN_PROGRESS":
+                self.status = "TODO"
+                self.completed_at = None
+                self.save(update_fields=["status", "completed_at", "updated_at"])
+            return self.status
+
         if done == total:
             self.status = "DONE"
             if self.completed_at is None:
@@ -142,8 +199,7 @@ class Task(models.Model):
             self.status = "IN_PROGRESS"
             self.completed_at = None
         else:
-            if self.status != "ARCHIVED":
-                self.status = "TODO"
+            self.status = "TODO"
             self.completed_at = None
         self.save(update_fields=["status", "completed_at", "updated_at"])
         return self.status
@@ -176,6 +232,10 @@ class Checkpoint(models.Model):
 
     class Meta:
         ordering = ["order", "target_deadline", "id"]
+        indexes = [
+            models.Index(fields=["task", "is_done", "order"], name="cp_task_done_order_idx"),
+            models.Index(fields=["is_done", "target_deadline"], name="cp_done_deadline_idx"),
+        ]
 
     def __str__(self) -> str:
         mark = "x" if self.is_done else " "
@@ -225,6 +285,19 @@ class FocusSession(models.Model):
 
     class Meta:
         ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["user", "status", "started_at"], name="focus_user_stat_start_idx"),
+            models.Index(fields=["task", "status"], name="focus_task_status_idx"),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.task_id and self.user_id and self.task.user_id != self.user_id:
+            raise ValidationError({"task": "FocusSession task must belong to the same user."})
+        if self.checkpoint_id and self.task_id and self.checkpoint.task_id != self.task_id:
+            raise ValidationError(
+                {"checkpoint": "FocusSession checkpoint must belong to the same task."}
+            )
 
     def __str__(self) -> str:
         return f"{self.task.title} ({self.mode} - {self.status})"
@@ -282,6 +355,27 @@ class Reminder(models.Model):
 
     class Meta:
         ordering = ["-escalation_level", "scheduled_for"]
+        indexes = [
+            models.Index(
+                fields=["user", "channel", "status", "scheduled_for"],
+                name="rem_user_chan_stat_sched_idx",
+            ),
+            models.Index(fields=["status", "scheduled_for"], name="rem_stat_sched_idx"),
+            models.Index(fields=["status", "snoozed_until"], name="rem_stat_snooze_idx"),
+            models.Index(
+                fields=["user", "status", "-escalation_level"],
+                name="rem_user_stat_esc_idx",
+            ),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.task_id and self.user_id and self.task.user_id != self.user_id:
+            raise ValidationError({"task": "Reminder task must belong to the same user."})
+        if self.checkpoint_id and self.task_id and self.checkpoint.task_id != self.task_id:
+            raise ValidationError(
+                {"checkpoint": "Reminder checkpoint must belong to the same task."}
+            )
 
     def __str__(self) -> str:
         target = self.checkpoint.title if self.checkpoint_id else self.task.title
@@ -321,7 +415,7 @@ class DailyDigestLog(models.Model):
 
 
 class TelegramLink(models.Model):
-    """Links a Django user account to a Telegram chat via one-time token (F4.4)."""
+    """Links a Django user account to a Telegram chat via one-time expiring token (F4.4)."""
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
@@ -330,9 +424,22 @@ class TelegramLink(models.Model):
     )
     chat_id = models.BigIntegerField(unique=True, null=True, blank=True)
     link_token = models.CharField(max_length=64, unique=True)
+    token_created_at = models.DateTimeField(default=timezone.now)
     is_verified = models.BooleanField(default=False)
     linked_at = models.DateTimeField(null=True, blank=True)
+
+    def is_token_expired(
+        self,
+        ttl_minutes: int = TELEGRAM_LINK_TOKEN_TTL_MINUTES,
+        now=None,
+    ) -> bool:
+        """Returns True if this link_token is older than ``ttl_minutes``."""
+        if self.token_created_at is None:
+            return True
+        current_now = now or timezone.now()
+        return current_now > self.token_created_at + timedelta(minutes=ttl_minutes)
 
     def __str__(self) -> str:
         state = "Verified" if self.is_verified else "Pending"
         return f"Telegram({self.user}, {state})"
+

@@ -88,6 +88,8 @@ class TaskForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if user is not None:
             self.fields["course"].queryset = Course.objects.filter(user=user)
+        else:
+            self.fields["course"].queryset = Course.objects.none()
         self.fields["course"].required = False
         self.fields["course"].empty_label = "— Tanpa Mata Kuliah —"
         self.fields["category"].required = False
@@ -96,7 +98,8 @@ class TaskForm(forms.ModelForm):
         self.fields["difficulty"].required = False
         self.fields["status"].required = False
         if self.instance and self.instance.pk:
-            self.fields["auto_generate_checkpoints"].initial = False
+            # Auto-generation applies to creation only; editing uses the dedicated regenerate button.
+            self.fields.pop("auto_generate_checkpoints", None)
 
     def clean_deadline(self):
         deadline = self.cleaned_data.get("deadline")
@@ -114,6 +117,8 @@ class TaskForm(forms.ModelForm):
         value = self.cleaned_data.get("estimated_minutes")
         if value is None:
             return self.instance.estimated_minutes if self.instance.pk else 120
+        if value < 0 or value > 10080:
+            raise forms.ValidationError("Estimasi waktu harus antara 0 dan 10.080 menit (1 minggu).")
         return value
 
     def clean_weight_percentage(self):
@@ -164,19 +169,32 @@ class CheckpointForm(forms.ModelForm):
             ),
             "phase": forms.Select(attrs={"class": INPUT_CLASS}),
             "estimated_minutes": forms.NumberInput(
-                attrs={"class": INPUT_CLASS, "min": "1", "step": "5"}
+                attrs={"class": INPUT_CLASS, "min": "1", "max": "600", "step": "5"}
             ),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, task=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.task = task or (
+            self.instance.task if (self.instance and self.instance.pk and self.instance.task_id) else None
+        )
         self.fields["phase"].required = False
         self.fields["estimated_minutes"].required = False
+
+    def clean_title(self):
+        title = (self.cleaned_data.get("title") or "").strip()
+        if not title:
+            raise forms.ValidationError("Judul checkpoint wajib diisi.")
+        return title[:200]
 
     def clean_target_deadline(self):
         target_deadline = self.cleaned_data.get("target_deadline")
         if not target_deadline:
             raise forms.ValidationError("Target deadline checkpoint wajib diisi.")
+        if self.task is not None and target_deadline > self.task.deadline:
+            raise forms.ValidationError(
+                "Target deadline checkpoint tidak boleh melewati deadline tugas."
+            )
         return target_deadline
 
     def clean_phase(self):
@@ -189,4 +207,7 @@ class CheckpointForm(forms.ModelForm):
         value = self.cleaned_data.get("estimated_minutes")
         if value is None:
             return self.instance.estimated_minutes if self.instance.pk else 30
+        if value < 1 or value > 600:
+            raise forms.ValidationError("Estimasi checkpoint harus antara 1 dan 600 menit.")
         return value
+

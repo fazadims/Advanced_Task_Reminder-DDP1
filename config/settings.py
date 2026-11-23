@@ -101,3 +101,13 @@ LOGIN_REDIRECT_URL = "/tasks/"
 LOGOUT_REDIRECT_URL = "/login/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+
+if not DEBUG:
+    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "True").lower() in ("1", "true", "yes")
+    CSRF_COOKIE_SECURE = os.environ.get("CSRF_COOKIE_SECURE", "True").lower() in ("1", "true", "yes")
+    SECURE_SSL_REDIRECT = os.environ.get("SECURE_SSL_REDIRECT", "False").lower() in ("1", "true", "yes")
+    SECURE_HSTS_SECONDS = int(os.environ.get("SECURE_HSTS_SECONDS", "31536000"))
+
