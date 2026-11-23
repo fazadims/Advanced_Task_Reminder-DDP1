@@ -1,0 +1,37 @@
+<div id="cp-{{ cp.pk }}" class="flex items-start justify-between gap-3 p-3 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition">
+  <div class="flex items-start gap-3 min-w-0">
+    <input type="checkbox"
+           {% if cp.is_done %}checked{% endif %}
+           hx-post="{% url 'tasks:toggle_checkpoint' cp.pk %}"
+           hx-target="#cp-{{ cp.pk }}"
+           hx-swap="outerHTML"
+           class="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer">
+    <div class="min-w-0">
+      <p class="text-sm font-medium {% if cp.is_done %}line-through text-slate-400{% else %}text-slate-900{% endif %}">
+        {{ cp.title }}
+      </p>
+      <div class="flex flex-wrap items-center gap-1.5 mt-1 text-xs">
+        <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">{{ cp.get_phase_display }}</span>
+        <span class="text-slate-500">Due {{ cp.target_deadline|date:"d M Y, H:i" }}</span>
+        <span class="text-slate-400">· {{ cp.estimated_minutes }}m</span>
+        {% if cp.is_ai_generated %}
+          <span class="px-2 py-0.5 rounded bg-purple-100 text-purple-700 font-semibold">AI</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-1 shrink-0">
+    <button type="button"
+            hx-post="{% url 'tasks:delete_checkpoint' cp.pk %}"
+            hx-target="#cp-{{ cp.pk }}"
+            hx-swap="outerHTML"
+            hx-confirm="Delete this checkpoint?"
+            class="px-2 py-1 rounded-md text-xs font-medium text-red-600 hover:bg-red-50 transition">
+      Delete
+    </button>
+  </div>
+</div>
+{% if include_oob_progress %}
+  {% include "tasks/partials/progress_bar.html" with task=cp.task oob=True %}
+{% endif %}

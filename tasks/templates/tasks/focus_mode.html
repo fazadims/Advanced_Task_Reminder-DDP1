@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Focus Mode: {{ task.title }} — ATR{% endblock %}
+
+{% block content %}
+<div id="pomodoro-app"
+     data-task-id="{{ task.pk }}"
+     data-start-url="{% url 'tasks:start_focus_session' %}"
+     data-finish-url-template="/tasks/focus/__ID__/finish/"
+     data-csrf="{{ csrf_token }}"
+     class="max-w-xl mx-auto">
+
+  <div class="flex items-center justify-between mb-6">
+    <a href="{% url 'tasks:task_detail' task.pk %}" class="text-sm text-slate-500 hover:text-indigo-600 transition">
+      &larr; Exit Focus Mode
+    </a>
+    <span class="text-xs font-medium px-3 py-1 rounded-full bg-indigo-50 text-indigo-700">
+      Today: <strong id="today-focus-minutes">{{ today_focus_minutes|default:0 }}</strong> min logged
+    </span>
+  </div>
+
+  <div class="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 sm:p-8 text-center space-y-6">
+    <div>
+      {% if task.course %}
+        <span class="inline-block px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-xs font-semibold mb-2">
+          {{ task.course.code }}
+        </span>
+      {% endif %}
+      <h1 class="text-xl sm:text-2xl font-bold text-slate-900">{{ task.title }}</h1>
+      <p class="text-xs text-slate-500 mt-1">Deadline: {{ task.deadline|date:"d M Y, H:i" }}</p>
+    </div>
+
+    <div class="text-left">
+      <label for="checkpoint-select" class="block text-xs font-semibold text-slate-600 mb-1">
+        Target Checkpoint (Optional)
+      </label>
+      <select id="checkpoint-select" name="checkpoint_id"
+              class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <option value="">General Task Focus</option>
+        {% for cp in checkpoints|default:task.checkpoints.all %}
+          <option value="{{ cp.pk }}" {% if cp.is_done %}class="text-slate-400"{% endif %}>
+            {% if cp.is_done %}[Done] {% endif %}{{ cp.title }} ({{ cp.estimated_minutes }}m)
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="space-y-3">
+      <div class="grid grid-cols-3 gap-2">
+        <button type="button" data-mode="POMODORO_25_5" data-minutes="25"
+                class="mode-btn py-2 px-3 rounded-xl border border-indigo-600 bg-indigo-50 text-indigo-700 text-xs font-semibold transition">
+          Pomodoro 25/5
+        </button>
+        <button type="button" data-mode="DEEP_50_10" data-minutes="50"
+                class="mode-btn py-2 px-3 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold transition">
+          Deep Work 50/10
+        </button>
+        <button type="button" data-mode="CUSTOM" data-minutes="30"
+                class="mode-btn py-2 px-3 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 text-xs font-semibold transition">
+          Custom
+        </button>
+      </div>
+
+      <div id="custom-minutes-wrapper" class="hidden items-center justify-center gap-2 text-xs text-slate-600">
+        <label for="custom-minutes">Minutes:</label>
+        <input id="custom-minutes" type="number" min="1" max="180" value="30"
+               class="w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-center text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      </div>
+    </div>
+
+    <div class="py-4">
+      <div id="timer-display" class="text-6xl sm:text-7xl font-mono font-extrabold tracking-tight text-slate-900">
+        25:00
+      </div>
+      <p id="timer-status" class="text-xs font-medium text-slate-500 mt-2">Ready to focus</p>
+    </div>
+
+    <label for="mark-checkpoint-done" class="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+      <input id="mark-checkpoint-done" type="checkbox"
+             class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+      <span>Mark selected checkpoint as done on finish</span>
+    </label>
+
+    <div class="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+      <button id="btn-start" type="button"
+              class="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-sm transition">
+        Start
+      </button>
+      <button id="btn-pause" type="button" disabled
+              class="px-5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-sm font-semibold disabled:opacity-40 transition">
+        Pause
+      </button>
+      <button id="btn-complete" type="button" disabled
+              class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-40 transition">
+        Complete
+      </button>
+      <button id="btn-abandon" type="button" disabled
+              class="px-5 py-2.5 rounded-xl border border-red-200 hover:bg-red-50 text-red-600 text-sm font-semibold disabled:opacity-40 transition">
+        Abandon
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+  <script src="{% static 'js/pomodoro.js' %}" defer></script>
+{% endblock %}

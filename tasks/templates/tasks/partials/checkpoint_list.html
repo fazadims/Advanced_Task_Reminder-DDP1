@@ -1,0 +1,12 @@
+<div id="checkpoint-list" class="space-y-2.5">
+  {% for cp in checkpoints %}
+    {% include "tasks/partials/checkpoint_row.html" with cp=cp include_oob_progress=False %}
+  {% empty %}
+    <div class="p-6 text-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+      No checkpoints yet. Add one below or click <strong>Auto-Generate Checkpoints</strong>.
+    </div>
+  {% endfor %}
+</div>
+{% if include_oob_progress and task %}
+  {% include "tasks/partials/progress_bar.html" with task=task oob=True %}
+{% endif %}

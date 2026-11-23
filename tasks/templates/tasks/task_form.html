@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{% if task %}Edit Task{% else %}New Task{% endif %} — ATR{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold text-slate-900">
+      {% if task %}Edit Task{% else %}Create New Task{% endif %}
+    </h1>
+    <p class="text-sm text-slate-500 mt-1">Fill in assignment details, deadline, weight, and effort estimate.</p>
+  </div>
+
+  {% if form.non_field_errors %}
+    <div class="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+      {{ form.non_field_errors }}
+    </div>
+  {% endif %}
+
+  <form method="post" class="space-y-4">
+    {% csrf_token %}
+    {% for field in form %}
+      <div>
+        {% if field.field.widget.input_type == "checkbox" %}
+          <label for="{{ field.id_for_label }}" class="inline-flex items-center gap-2 text-sm font-medium text-slate-700 cursor-pointer">
+            {{ field }}
+            <span>{{ field.label }}</span>
+          </label>
+        {% else %}
+          <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-slate-700 mb-1">
+            {{ field.label }}{% if field.field.required %} <span class="text-red-500">*</span>{% endif %}
+          </label>
+          <div class="[&_input]:w-full [&_input]:rounded-lg [&_input]:border [&_input]:border-slate-300 [&_input]:px-3 [&_input]:py-2 [&_input]:text-sm [&_select]:w-full [&_select]:rounded-lg [&_select]:border [&_select]:border-slate-300 [&_select]:px-3 [&_select]:py-2 [&_select]:text-sm [&_select]:bg-white [&_textarea]:w-full [&_textarea]:rounded-lg [&_textarea]:border [&_textarea]:border-slate-300 [&_textarea]:px-3 [&_textarea]:py-2 [&_textarea]:text-sm">
+            {{ field }}
+          </div>
+        {% endif %}
+        {% if field.help_text %}
+          <p class="text-xs text-slate-500 mt-1">{{ field.help_text }}</p>
+        {% endif %}
+        {% for error in field.errors %}
+          <p class="text-xs text-red-600 mt-1">{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endfor %}
+
+    <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+      <a href="{% if task %}{% url 'tasks:task_detail' task.pk %}{% else %}{% url 'tasks:task_list' %}{% endif %}"
+         class="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 text-sm font-medium transition">
+        Cancel
+      </a>
+      <button type="submit"
+              class="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition">
+        {% if task %}Save Changes{% else %}Create Task{% endif %}
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}
