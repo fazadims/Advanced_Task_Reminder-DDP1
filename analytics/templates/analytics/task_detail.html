@@ -7,6 +7,16 @@
 <p>Estimasi: <b>{{ hours }} jam</b> · Skor prioritas: <b>{{ score }}</b></p>
 <p>Alasan: {{ reasons|join:", " }}</p>
 
+<h2>Rekomendasi waktu pengerjaan</h2>
+<ul>
+  {% for s in plan.sessions %}
+  <li>{{ s.start|date:"D, d M H:i" }} – {{ s.end|date:"H:i" }}</li>
+  {% empty %}<li>Tidak ada slot kosong sebelum deadline.</li>{% endfor %}
+</ul>
+{% if plan.unscheduled_hours %}
+  <div class="warn">⚠️ {{ plan.unscheduled_hours }} jam belum punya slot sebelum deadline.</div>
+{% endif %}
+
 <h2>Progres ({{ progress }}%)</h2>
 <div class="bar"><span style="width: {{ progress }}%"></span></div>
 <ul>

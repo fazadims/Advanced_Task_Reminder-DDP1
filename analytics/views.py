@@ -8,6 +8,12 @@ from tasks.models import Checkpoint, Task
 from . import services
 
 
+def _busy_blocks(days=8):
+    """Jadwal sibuk. Sementara data palsu; ganti dengan data Google Calendar."""
+    now = timezone.localtime()
+    return services.sample_busy_blocks(now.date(), days, now.tzinfo)
+
+
 def dashboard(request):
     """Dashboard 'Fokus Hari Ini'."""
     now = timezone.now()
@@ -21,11 +27,20 @@ def dashboard(request):
         for (y, w), h in sorted(services.crunch_weeks(tasks).items())
     ]
     checkpoints = Checkpoint.objects.filter(
-        due_date=today, done=False
+        due_date=today, done=False, task__done=False
     ).select_related("task")
+
+    suggestion = None
+    if rows:
+        top = rows[0]["task"]
+        suggestion = {
+            "task": top,
+            **services.recommend_slots(top, _busy_blocks(), timezone.localtime()),
+        }
 
     context = {
         "rows": rows,
+        "suggestion": suggestion,
         "checkpoints": checkpoints,
         "total_hours": round(sum(r["hours"] for r in rows), 1),
         "crunch": crunch,
@@ -50,5 +65,6 @@ def task_detail(request, pk):
         "color": color, "hours": services.task_hours(task),
         "checkpoints": checkpoints,
         "progress": round(done / total * 100) if total else 0,
+        "plan": services.recommend_slots(task, _busy_blocks(), timezone.localtime()),
     }
     return render(request, "analytics/task_detail.html", context)

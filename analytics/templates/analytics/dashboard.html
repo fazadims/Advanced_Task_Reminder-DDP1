@@ -29,6 +29,18 @@
   {% endfor %}
 </table>
 
+{% if suggestion %}
+<h2>Saran jadwal: {{ suggestion.task.title }}</h2>
+<ul>
+  {% for s in suggestion.sessions %}
+  <li>{{ s.start|date:"D, d M H:i" }} – {{ s.end|date:"H:i" }}</li>
+  {% empty %}<li>Tidak ada slot kosong sebelum deadline.</li>{% endfor %}
+</ul>
+{% if suggestion.unscheduled_hours %}
+  <div class="warn">⚠️ {{ suggestion.unscheduled_hours }} jam belum punya slot. Waktu luang tidak cukup sebelum deadline.</div>
+{% endif %}
+{% endif %}
+
 <h2>Checkpoint hari ini</h2>
 <ul>
   {% for c in checkpoints %}<li>{{ c.title }} <small>({{ c.task.title }})</small></li>
