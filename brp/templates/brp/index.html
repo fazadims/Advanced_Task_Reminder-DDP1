@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manajemen BRP & Bobot Penilaian</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+    <nav class="bg-indigo-700 text-white px-6 py-4 shadow">
+        <div class="max-w-6xl mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold">BRP & Bobot Penilaian</h1>
+            <div class="flex items-center gap-4 text-sm">
+                <a href="/" class="hover:underline">Dashboard Utama</a>
+                <form action="{% url 'brp:load_demo' %}" method="POST">
+                    {% csrf_token %}
+                    <button type="submit" class="bg-amber-400 text-slate-900 font-semibold px-3 py-1.5 rounded hover:bg-amber-300 transition">
+                        ⚡ Muat Demo Fasilkom
+                    </button>
+                </form>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-6xl mx-auto p-6 space-y-6">
+        {% if messages %}
+            <div class="space-y-2">
+                {% for message in messages %}
+                    <div class="p-3 rounded-lg text-sm font-medium bg-indigo-100 text-indigo-900 border border-indigo-200">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <!-- Form Tambah Mata Kuliah -->
+        <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+            <h2 class="text-lg font-bold mb-3">Tambah Mata Kuliah Baru</h2>
+            <form action="{% url 'brp:add_course' %}" method="POST" class="grid grid-cols-1 md:grid-cols-5 gap-3">
+                {% csrf_token %}
+                <input type="text" name="code" placeholder="Kode (mis. CSGE601020)" required class="border rounded-lg px-3 py-2 text-sm">
+                <input type="text" name="name" placeholder="Nama Mata Kuliah" required class="border rounded-lg px-3 py-2 text-sm md:col-span-2">
+                <input type="number" name="sks" value="4" min="1" max="6" placeholder="SKS" class="border rounded-lg px-3 py-2 text-sm">
+                <button type="submit" class="bg-indigo-600 text-white font-semibold rounded-lg px-4 py-2 text-sm hover:bg-indigo-700">
+                    + Tambah Matkul
+                </button>
+            </form>
+        </section>
+
+        <!-- Daftar Mata Kuliah & Komponen BRP -->
+        <section class="space-y-6">
+            {% for course in courses %}
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
+                    <div class="flex flex-wrap justify-between items-center border-b pb-3 gap-2">
+                        <div>
+                            <span class="text-xs font-bold uppercase tracking-wider text-indigo-600">{{ course.code }} • {{ course.sks }} SKS</span>
+                            <h3 class="text-xl font-bold">{{ course.name }}</h3>
+                        </div>
+                        <div class="text-right">
+                            <span class="px-3 py-1 rounded-full text-sm font-bold {% if course.is_weight_valid %}bg-emerald-100 text-emerald-800{% else %}bg-amber-100 text-amber-800{% endif %}">
+                                Total Bobot: {{ course.total_weight|floatformat:1 }}% / 100%
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Tabel Komponen -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-slate-100 text-slate-600 uppercase text-xs">
+                                <tr>
+                                    <th class="px-4 py-2">Komponen</th>
+                                    <th class="px-4 py-2">Kategori</th>
+                                    <th class="px-4 py-2">Bobot Total</th>
+                                    <th class="px-4 py-2">Jumlah Item</th>
+                                    <th class="px-4 py-2">Bobot / Item</th>
+                                    <th class="px-4 py-2 text-right">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y">
+                                {% for comp in course.components.all %}
+                                    <tr>
+                                        <td class="px-4 py-2 font-medium">{{ comp.name }}</td>
+                                        <td class="px-4 py-2">{{ comp.get_category_display }}</td>
+                                        <td class="px-4 py-2 font-semibold">{{ comp.weight_percentage }}%</td>
+                                        <td class="px-4 py-2">{{ comp.item_count }}x</td>
+                                        <td class="px-4 py-2 text-indigo-600 font-semibold">{{ comp.weight_per_item }}%</td>
+                                        <td class="px-4 py-2 text-right">
+                                            <form action="{% url 'brp:delete_component' comp.id %}" method="POST" class="inline">
+                                                {% csrf_token %}
+                                                <button type="submit" class="text-rose-600 hover:underline text-xs font-semibold">Hapus</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                {% empty %}
+                                    <tr>
+                                        <td colspan="6" class="px-4 py-4 text-center text-slate-400">Belum ada komponen penilaian. Tambahkan manual atau unggah BRP di bawah.</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Form Tambah Komponen Manual & Upload/Parse BRP -->
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2 border-t">
+                        <form action="{% url 'brp:add_component' course.id %}" method="POST" class="bg-slate-50 p-4 rounded-lg space-y-2">
+                            {% csrf_token %}
+                            <p class="text-xs font-bold uppercase text-slate-500">Tambah Komponen Manual</p>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="text" name="name" placeholder="Nama (mis. TP 1-4)" required class="border rounded px-2.5 py-1.5 text-sm col-span-2 bg-white">
+                                <select name="category" class="border rounded px-2.5 py-1.5 text-sm bg-white">
+                                    {% for val, label in categories %}
+                                        <option value="{{ val }}">{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                                <input type="number" step="0.1" name="weight_percentage" placeholder="Bobot (%)" required class="border rounded px-2.5 py-1.5 text-sm bg-white">
+                                <input type="number" name="item_count" value="1" min="1" placeholder="Jumlah Item" class="border rounded px-2.5 py-1.5 text-sm bg-white">
+                                <button type="submit" class="bg-slate-800 text-white rounded px-3 py-1.5 text-sm font-medium hover:bg-slate-700">Simpan Komponen</button>
+                            </div>
+                        </form>
+
+                        <form action="{% url 'brp:parse_upload' course.id %}" method="POST" enctype="multipart/form-data" class="bg-indigo-50/60 p-4 rounded-lg space-y-2">
+                            {% csrf_token %}
+                            <p class="text-xs font-bold uppercase text-indigo-700">Auto-Extract dari PDF / Teks BRP</p>
+                            <input type="file" name="pdf_file" accept=".pdf" class="block w-full text-xs text-slate-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:bg-indigo-600 file:text-white">
+                            <textarea name="raw_text" rows="2" placeholder="Atau tempel teks bobot BRP di sini (mis. Tugas Pemrograman: 24%, UTS: 30%)" class="w-full border rounded px-2.5 py-1.5 text-xs bg-white"></textarea>
+                            <button type="submit" class="w-full bg-indigo-600 text-white rounded px-3 py-1.5 text-sm font-medium hover:bg-indigo-700">Ekstrak Bobot Otomatis</button>
+                        </form>
+                    </div>
+                </div>
+            {% empty %}
+                <div class="bg-white p-10 rounded-xl text-center border border-dashed border-slate-300 space-y-2">
+                    <p class="text-slate-600 font-medium">Belum ada mata kuliah terdaftar.</p>
+                    <p class="text-sm text-slate-400">Tambahkan mata kuliah di atas atau klik tombol <strong>⚡ Muat Demo Fasilkom</strong> di pojok kanan atas.</p>
+                </div>
+            {% endfor %}
+        </section>
+    </main>
+</body>
+</html>
