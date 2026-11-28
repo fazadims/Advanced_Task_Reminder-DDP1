@@ -125,3 +125,29 @@ def load_demo_brp(request):
         seed_demo_courses_and_brp(request.user)
         messages.success(request, "Data demo mata kuliah Fasilkom & bobot BRP berhasil dimuat!")
     return redirect("brp:dashboard")
+
+@login_required
+def edit_component(request, comp_id):
+    comp = get_object_or_404(GradingComponent, id=comp_id, course__user=request.user)
+    if request.method == "POST":
+        comp.name = request.POST.get("name", comp.name).strip()
+        comp.category = request.POST.get("category", comp.category)
+        comp.weight_percentage = float(request.POST.get("weight_percentage", comp.weight_percentage) or 0)
+        comp.item_count = max(1, int(request.POST.get("item_count", comp.item_count) or 1))
+        try:
+            comp.full_clean()
+            comp.save()
+            messages.success(request, f"Komponen '{comp.name}' berhasil diperbarui.")
+        except ValidationError as e:
+            messages.error(request, " ".join(e.messages))
+    return redirect("brp:dashboard")
+
+
+@login_required
+def delete_course(request, course_id):
+    course = get_object_or_404(Course, id=course_id, user=request.user)
+    if request.method == "POST":
+        course_name = course.name
+        course.delete()
+        messages.info(request, f"Mata kuliah '{course_name}' berhasil dihapus.")
+    return redirect("brp:dashboard")
